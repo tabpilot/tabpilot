@@ -1,9 +1,11 @@
 import { AnimatePresence, motion } from 'framer-motion';
 import {
+  Check,
   ClipboardCopy,
   Copy,
   ExternalLink,
   Eye,
+  GripVertical,
   Link2,
   Play,
   Plus,
@@ -243,6 +245,8 @@ export function HostDashboard() {
   const [newUrl, setNewUrl] = useState('');
   const [showMobileParticipants, setShowMobileParticipants] = useState(false);
   const [isGroomingComplete, setIsGroomingComplete] = useState(false);
+  const [isEditMode, setIsEditMode] = useState(false);
+  const [frozenCurrentIndex, setFrozenCurrentIndex] = useState<number | null>(null);
   const [sendExtraFields, setSendExtraFields] = useState(false);
 
   const {
@@ -291,7 +295,7 @@ export function HostDashboard() {
   const storyPointProjects = jiraStatus?.storyPointProjects ?? [];
   const hasExtraFields = jiraStatus?.hasExtraFields ?? false;
   const { data: scoreStatus } = useTicketScoreStatus();
-  const scoringEnabled = scoreStatus?.configured ?? false;
+  const scoringEnabled = (scoreStatus?.configured ?? false) && !isEditMode;
   usePrefetchTicketScores(scoringEnabled ? (session?.urls ?? []) : []);
 
   // Update page title
@@ -600,17 +604,45 @@ export function HostDashboard() {
               <span className="text-xs px-1.5 py-0.5 rounded-full bg-zinc-200 dark:bg-zinc-800 text-zinc-500">
                 {session.urls.length}
               </span>
+              <div className="ml-auto">
+                {isEditMode ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsEditMode(false);
+                      setFrozenCurrentIndex(null);
+                    }}
+                    className="flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-md bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/25 transition-colors"
+                  >
+                    <Check className="h-3 w-3" />
+                    Done
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsEditMode(true);
+                      setFrozenCurrentIndex(session.currentIndex);
+                    }}
+                    className="flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-md text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/60 border border-transparent hover:border-zinc-700 transition-colors"
+                  >
+                    <GripVertical className="h-3 w-3" />
+                    Edit order
+                  </button>
+                )}
+              </div>
             </div>
             <UrlQueue
               urls={session.urls}
               currentIndex={session.currentIndex}
               isHost={true}
+              isEditMode={isEditMode}
               onJumpTo={handleJumpTo}
               onDelete={handleDeleteUrl}
               onReorder={handleReorderUrls}
-              savedVotes={session.votingEnabled ? savedVotesMap : undefined}
-              onSetVote={session.votingEnabled ? handleSetSavedVote : undefined}
-              onResetVote={session.votingEnabled ? handleResetSavedVote : undefined}
+              savedVotes={savedVotesMap}
+              onSetVote={handleSetSavedVote}
+              onResetVote={handleResetSavedVote}
               onCopyToJira={session.votingEnabled ? handleCopyToJira : undefined}
               storyPointProjects={storyPointProjects}
               scoringEnabled={scoringEnabled}
@@ -650,14 +682,16 @@ export function HostDashboard() {
           {/* Navigation controls */}
           {session.state === 'active' && (
             <NavigationControls
-              currentIndex={session.currentIndex}
+              currentIndex={
+                isEditMode ? (frozenCurrentIndex ?? session.currentIndex) : session.currentIndex
+              }
               total={session.urls.length}
               onPrevious={() => handleNavigate('prev')}
               onNext={() => handleNavigate('next')}
               onSkip={handleSkip}
               onComplete={handleComplete}
               completed={isGroomingComplete}
-              disabled={!isConnected}
+              disabled={!isConnected || isEditMode}
             />
           )}
         </main>

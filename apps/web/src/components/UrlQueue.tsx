@@ -16,7 +16,6 @@ import {
   ExternalLink,
   GripVertical,
   Loader2,
-  Lock,
   Pencil,
   Send,
   Trash2,
@@ -29,6 +28,7 @@ import { useJiraIssue } from '@/hooks/useJiraIssue';
 import { useUrlTitle } from '@/hooks/useUrlTitle';
 import { formatJiraTitle, isStoryPointConfigured, parseJiraUrl } from '@/lib/jira';
 import { cn, formatUrl, getFaviconUrl, safeUrl, truncateUrl } from '@/lib/utils';
+
 
 // ─── Story point validation ───────────────────────────────────────────────────
 
@@ -53,16 +53,20 @@ interface UrlTitleProps {
   readonly isCurrent: boolean;
   readonly isPast: boolean;
   readonly scoringEnabled?: boolean;
+  readonly isDragOverlay?: boolean;
 }
 
-function UrlTitle({ url, isCurrent, isPast, scoringEnabled }: UrlTitleProps) {
-  const { data: jiraIssue, isLoading: jiraLoading } = useJiraIssue(url);
-  const { data: pageTitle, isLoading: titleLoading } = useUrlTitle(url);
+function UrlTitle({ url, isCurrent, isPast, scoringEnabled, isDragOverlay }: UrlTitleProps) {
+  // Disable fetching in the drag overlay — React Query returns cached data without a network call.
+  const { data: jiraIssue, isLoading: jiraLoading } = useJiraIssue(url, isDragOverlay);
+  const { data: pageTitle, isLoading: titleLoading } = useUrlTitle(url, isDragOverlay);
 
-  const isLoading = jiraLoading || titleLoading;
   const title = jiraIssue
     ? formatJiraTitle(jiraIssue)
     : (pageTitle ?? parseJiraUrl(url)?.key ?? formatUrl(url));
+  // Only show spinner when we have no text at all to display yet.
+  // During reorder/drag all titles are already cached, so this stays false.
+  const isLoading = !title && (jiraLoading || titleLoading);
 
   return (
     <div className="flex-1 min-w-0">
@@ -233,6 +237,7 @@ interface RowProps {
   readonly index: number;
   readonly currentIndex: number;
   readonly isHost: boolean;
+  readonly isEditMode?: boolean;
   readonly onJumpTo?: (index: number) => void;
   readonly onDelete?: (index: number) => void;
   readonly isDragOverlay?: boolean;
@@ -249,17 +254,29 @@ function buildRowClassName(
   isCurrent: boolean,
   isPast: boolean,
   isFuture: boolean,
+  isPreDone: boolean,
+  isEditMode: boolean,
   isHost: boolean,
   isDragging: boolean,
   isDragOverlay: boolean,
 ) {
+  // In edit mode every row looks neutral — no current highlight, no past dimming.
+  if (isEditMode) {
+    return cn(
+      'flex items-center gap-3 px-3 py-3 rounded-lg border transition-all duration-150 group relative overflow-hidden w-full text-left',
+      'bg-transparent border-zinc-200 dark:border-zinc-800 hover:border-zinc-300 dark:hover:border-zinc-700',
+      isDragging && 'opacity-40',
+      isDragOverlay && 'shadow-xl opacity-100 cursor-grabbing',
+    );
+  }
   return cn(
     'flex items-center gap-3 px-3 py-3 rounded-lg border transition-all duration-150 group relative overflow-hidden w-full text-left',
     isCurrent && 'bg-indigo-500/10 border-indigo-500/50 border-l-2 border-l-indigo-500',
     isPast && 'bg-transparent border-zinc-200/50 dark:border-zinc-800/50 opacity-50',
     isFuture &&
+      !isPreDone &&
       'bg-transparent border-zinc-200 dark:border-zinc-800 hover:border-zinc-300 dark:hover:border-zinc-700 hover:bg-zinc-100/30 dark:hover:bg-zinc-800/30',
-    isHost && !isCurrent && 'cursor-pointer',
+    isPreDone && 'bg-transparent border-zinc-200/50 dark:border-zinc-800/50 opacity-40',
     isDragging && 'opacity-40',
     isDragOverlay && 'shadow-xl opacity-100 cursor-grabbing',
   );
@@ -271,6 +288,7 @@ function UrlRow({
   index,
   currentIndex,
   isHost,
+  isEditMode = false,
   onJumpTo,
   onDelete,
   isDragOverlay,
@@ -285,16 +303,17 @@ function UrlRow({
   const isPast = index < currentIndex;
   const isFuture = index > currentIndex;
   const isSkipped = isPast && savedVote === 'skipped';
+  // Future ticket pre-marked as done via badge click (no navigation needed)
+  const isPreDone = isFuture && savedVote === 'skipped';
+  // Badge click is available on future tickets with no real vote (or already pre-marked)
+  const canMarkDone =
+    isHost && isFuture && !isCurrent && (savedVote === undefined || savedVote === 'skipped');
 
   const isJiraSpConfigured = isStoryPointConfigured(url, storyPointProjects ?? []);
 
-  // Completed AND current items are locked — only future items can be reordered.
-  // Locking current prevents dragging the ticket being actively discussed.
-  const isLocked = !isFuture;
-
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id,
-    disabled: !isHost || isLocked,
+    disabled: !isHost || !isEditMode,
   });
 
   const style = {
@@ -308,87 +327,129 @@ function UrlRow({
     isCurrent,
     isPast,
     isFuture,
+    isPreDone,
+    isEditMode,
     isHost,
     isDragging,
     isDragOverlay ?? false,
   );
 
-  const dragHandle =
-    isHost &&
-    (isLocked ? (
-      <span className="flex-shrink-0 p-0.5 text-zinc-600 dark:text-zinc-700" aria-hidden="true">
-        <Lock className="h-3 w-3" />
-      </span>
-    ) : (
-      <button
-        type="button"
-        className={cn(
-          'flex-shrink-0 p-0.5 rounded text-zinc-500 dark:text-zinc-600 cursor-grab active:cursor-grabbing',
-          'opacity-0 group-hover:opacity-100 transition-opacity',
-          isDragOverlay && 'opacity-100',
-        )}
-        aria-label="Drag to reorder"
-        onClick={(e) => e.stopPropagation()}
-        {...attributes}
-        {...listeners}
-      >
-        <GripVertical className="h-3.5 w-3.5" />
-      </button>
-    ));
+  const dragHandle = isHost && isEditMode && (
+    <button
+      type="button"
+      className={cn(
+        'flex-shrink-0 p-0.5 rounded text-zinc-500 dark:text-zinc-600 cursor-grab active:cursor-grabbing',
+        'opacity-60 group-hover:opacity-100 transition-opacity',
+        isDragOverlay && 'opacity-100',
+      )}
+      aria-label="Drag to reorder"
+      onClick={(e) => e.stopPropagation()}
+      {...attributes}
+      {...listeners}
+    >
+      <GripVertical className="h-3.5 w-3.5" />
+    </button>
+  );
 
   const rowContent = (
     <>
-      {isCurrent && (
+      {isCurrent && !isEditMode && (
         <div className="absolute inset-0 bg-gradient-to-r from-indigo-500/5 to-transparent pointer-events-none" />
       )}
 
-      {/* Invisible click target for row navigation — a real <button> for a11y */}
-      {isClickable && (
-        <button
-          type="button"
-          className="absolute inset-0 z-0 cursor-pointer"
-          onClick={() => onJumpTo(index)}
-          aria-label={`Jump to ticket ${index + 1}`}
-        />
-      )}
-
-      {/* Drag handle or lock indicator — host only */}
+      {/* Drag handle — host only */}
       {dragHandle}
 
-      {/* Index badge */}
-      <span
-        className={cn(
-          'flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold',
-          isCurrent && 'bg-indigo-500 text-white',
-          isPast && 'bg-zinc-300 dark:bg-zinc-700 text-zinc-500',
-          isFuture && 'bg-zinc-200 dark:bg-zinc-800 text-zinc-500',
-        )}
-      >
-        {isSkipped ? (
-          <ChevronsRight className="h-3 w-3" aria-label="Skipped" />
-        ) : isPast ? (
-          <Check className="h-3 w-3" />
-        ) : (
-          index + 1
-        )}
-      </span>
+      {/* Index badge — clickable for mark-done on eligible future tickets */}
+      {canMarkDone ? (
+        <button
+          type="button"
+          className={cn(
+            'relative z-10 flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold transition-colors',
+            isPreDone
+              ? 'bg-amber-400/30 text-amber-500 hover:bg-red-400/20 hover:text-red-400'
+              : 'bg-zinc-200 dark:bg-zinc-800 text-zinc-500 hover:bg-emerald-400/20 hover:text-emerald-500',
+          )}
+          aria-label={
+            isPreDone ? `Unmark ticket ${index + 1} as done` : `Mark ticket ${index + 1} as done`
+          }
+          onClick={(e) => {
+            e.stopPropagation();
+            if (isPreDone) onResetVote?.(index);
+            else onSetVote?.(index, 'skipped');
+          }}
+        >
+          {isPreDone ? <ChevronsRight className="h-3 w-3" aria-label="Skipped" /> : index + 1}
+        </button>
+      ) : (
+        <span
+          className={cn(
+            'flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold',
+            isCurrent && !isEditMode && 'bg-indigo-500 text-white',
+            (isCurrent && isEditMode) || isFuture
+              ? 'bg-zinc-200 dark:bg-zinc-800 text-zinc-500'
+              : undefined,
+            isPast && !isEditMode && 'bg-zinc-300 dark:bg-zinc-700 text-zinc-500',
+          )}
+        >
+          {isSkipped ? (
+            <ChevronsRight className="h-3 w-3" aria-label="Skipped" />
+          ) : isPast ? (
+            <Check className="h-3 w-3" />
+          ) : (
+            index + 1
+          )}
+        </span>
+      )}
 
-      {/* Favicon */}
-      <img
-        src={getFaviconUrl(url)}
-        alt=""
-        aria-hidden="true"
-        className={cn('w-4 h-4 flex-shrink-0 rounded-sm', isPast && 'grayscale opacity-50')}
-        onError={(e) => {
-          (e.target as HTMLImageElement).style.display = 'none';
-        }}
-      />
+      {/* Favicon + Title — clickable for navigation on non-current rows */}
+      {isClickable ? (
+        <button
+          type="button"
+          className="flex items-center gap-3 flex-1 min-w-0 text-left"
+          onClick={() => onJumpTo?.(index)}
+          aria-label={`Jump to ticket ${index + 1}`}
+        >
+          <img
+            src={getFaviconUrl(url)}
+            alt=""
+            aria-hidden="true"
+            className={cn('w-4 h-4 flex-shrink-0 rounded-sm', isPast && 'grayscale opacity-50')}
+            onError={(e) => {
+              (e.target as HTMLImageElement).style.display = 'none';
+            }}
+          />
+          <UrlTitle
+            url={url}
+            isCurrent={isCurrent}
+            isPast={isPast}
+            scoringEnabled={scoringEnabled}
+            isDragOverlay={isDragOverlay}
+          />
+        </button>
+      ) : (
+        <>
+          <img
+            src={getFaviconUrl(url)}
+            alt=""
+            aria-hidden="true"
+            className={cn('w-4 h-4 flex-shrink-0 rounded-sm', isPast && 'grayscale opacity-50')}
+            onError={(e) => {
+              (e.target as HTMLImageElement).style.display = 'none';
+            }}
+          />
+          <UrlTitle
+            url={url}
+            isCurrent={isCurrent}
+            isPast={isPast}
+            scoringEnabled={scoringEnabled}
+            isDragOverlay={isDragOverlay}
+          />
+        </>
+      )}
 
-      {/* Title */}
-      <UrlTitle url={url} isCurrent={isCurrent} isPast={isPast} scoringEnabled={scoringEnabled} />
-
-      {/* Current badge */}
-      {isCurrent && (
+      {/* Current badge — hidden in edit mode */}
+      {isCurrent && !isEditMode && (
         <span className="flex-shrink-0 text-xs font-semibold px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">
           Current
         </span>
@@ -468,6 +529,7 @@ export interface UrlQueueProps {
   readonly urls: string[];
   readonly currentIndex: number;
   readonly isHost?: boolean;
+  readonly isEditMode?: boolean;
   readonly onJumpTo?: (index: number) => void;
   readonly onDelete?: (index: number) => void;
   readonly onReorder?: (fromIndex: number, toIndex: number) => void;
@@ -489,6 +551,7 @@ export function UrlQueue({
   urls,
   currentIndex,
   isHost = false,
+  isEditMode = false,
   onJumpTo,
   onDelete,
   onReorder,
@@ -501,15 +564,19 @@ export function UrlQueue({
   scoringEnabled,
 }: UrlQueueProps) {
   const [activeId, setActiveId] = useState<string | null>(null);
-  // Optimistic local copy — updated immediately on drop so there's no
+  // Optimistic local copies — updated immediately on drop so there's no
   // visual snap-back while we wait for the server round-trip.
   const [localUrls, setLocalUrls] = useState(urls);
+  const [localCurrentIndex, setLocalCurrentIndex] = useState(currentIndex);
 
-  // Keep in sync when the authoritative prop changes (server confirms reorder,
-  // URL added/removed, etc.).
+  // Keep in sync when the authoritative props change (server confirms reorder,
+  // URL added/removed, navigation, etc.).
   useEffect(() => {
     setLocalUrls(urls);
   }, [urls]);
+  useEffect(() => {
+    setLocalCurrentIndex(currentIndex);
+  }, [currentIndex]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -526,22 +593,20 @@ export function UrlQueue({
 
   function handleDragEnd(event: DragEndEvent) {
     setActiveId(null);
+    if (!isEditMode) return;
     const { active, over } = event;
     if (!over || active.id === over.id) return;
 
     const fromIndex = items.indexOf(active.id as string);
     const toIndex = items.indexOf(over.id as string);
 
-    // Only allow moves strictly within the future zone.
     if (fromIndex === -1 || toIndex === -1) return;
-    if (fromIndex <= currentIndex || toIndex <= currentIndex) return;
 
     // Apply optimistically so the list settles immediately — no snap-back.
     const reordered = [...localUrls];
     const [moved] = reordered.splice(fromIndex, 1);
     reordered.splice(toIndex, 0, moved);
     setLocalUrls(reordered);
-
     onReorder?.(fromIndex, toIndex);
   }
 
@@ -571,8 +636,9 @@ export function UrlQueue({
                 id={id}
                 url={localUrls[index]}
                 index={index}
-                currentIndex={currentIndex}
+                currentIndex={localCurrentIndex}
                 isHost={isHost}
+                isEditMode={isEditMode}
                 onJumpTo={onJumpTo}
                 onDelete={onDelete}
                 savedVote={savedVotes?.[index]}
@@ -594,7 +660,7 @@ export function UrlQueue({
             id={activeId as string}
             url={activeUrl}
             index={activeIndex}
-            currentIndex={currentIndex}
+            currentIndex={localCurrentIndex}
             isHost={isHost}
             isDragOverlay
           />

@@ -436,6 +436,40 @@ describe('SessionsService', () => {
       const result = await service.reorderUrls('00000000-0000-0000-0000-000000000000', 0, 1);
       expect(result).toBeNull();
     });
+
+    it('should allow reordering past items (index before currentIndex)', async () => {
+      const { session } = await service.create({
+        ...defaultDto,
+        urls: ['https://a.com', 'https://b.com', 'https://c.com', 'https://d.com'],
+      });
+      await service.updateCurrentIndex(session.id, 2);
+      // Move past item 0 to past item 1
+      const updated = await service.reorderUrls(session.id, 0, 1);
+      expect(updated?.urls[0]).toBe('https://b.com');
+      expect(updated?.urls[1]).toBe('https://a.com');
+    });
+
+    it('should never change currentIndex regardless of what moves', async () => {
+      const { session } = await service.create({
+        ...defaultDto,
+        urls: ['https://a.com', 'https://b.com', 'https://c.com', 'https://d.com'],
+      });
+      await service.updateCurrentIndex(session.id, 2);
+      // Move item before current to after current — currentIndex must stay at 2
+      const updated = await service.reorderUrls(session.id, 0, 3);
+      expect(updated?.currentIndex).toBe(2);
+    });
+
+    it('should never change currentIndex even when the current item is moved', async () => {
+      const { session } = await service.create({
+        ...defaultDto,
+        urls: ['https://a.com', 'https://b.com', 'https://c.com', 'https://d.com'],
+      });
+      await service.updateCurrentIndex(session.id, 1);
+      // Move the current item (index 1) to index 3 — slot stays at 1
+      const updated = await service.reorderUrls(session.id, 1, 3);
+      expect(updated?.currentIndex).toBe(1);
+    });
   });
 
   // ── Vote persistence ────────────────────────────────────────────────────────

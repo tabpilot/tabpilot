@@ -60,6 +60,7 @@ interface SocketMeta {
   isHost: boolean;
 }
 
+
 @WebSocketGateway()
 export class SessionGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
@@ -772,6 +773,7 @@ export class SessionGateway implements OnGatewayConnection, OnGatewayDisconnect 
       } satisfies WsErrorPayload);
       return;
     }
+
     const participants = await this.participantsService.findBySession(sessionId);
     this.server.to(sessionId).emit(WS_EVENTS.SESSION_STATE, {
       session: this.sessionsService.toSessionDto(updated),

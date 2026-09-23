@@ -425,6 +425,64 @@ describe('HostDashboard — navigation controls', () => {
     );
   });
 
+  it('shows Edit order button and hides drag handles by default', () => {
+    const store = useSessionStore.getState();
+    store.setSession(makeSession({ urls: ['https://a.com', 'https://b.com'], currentIndex: 0 }));
+    render(<HostDashboard />);
+    expect(screen.getByRole('button', { name: /edit order/i })).toBeInTheDocument();
+    expect(screen.queryAllByLabelText('Drag to reorder')).toHaveLength(0);
+  });
+
+  it('shows drag handles and Done button after clicking Edit order', async () => {
+    const store = useSessionStore.getState();
+    store.setSession(makeSession({ urls: ['https://a.com', 'https://b.com'], currentIndex: 0 }));
+    render(<HostDashboard />);
+    await userEvent.click(screen.getByRole('button', { name: /edit order/i }));
+    // Edit order button replaced by Done button in the queue header
+    expect(screen.queryByRole('button', { name: /edit order/i })).not.toBeInTheDocument();
+    expect(screen.getAllByLabelText('Drag to reorder').length).toBeGreaterThan(0);
+  });
+
+  it('disables Previous, Skip, and Next while in edit mode', async () => {
+    const store = useSessionStore.getState();
+    store.setSession(makeSession({ urls: ['https://a.com', 'https://b.com'], currentIndex: 0 }));
+    render(<HostDashboard />);
+    await userEvent.click(screen.getByRole('button', { name: /edit order/i }));
+    expect(screen.getByRole('button', { name: /previous/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /skip/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /next/i })).toBeDisabled();
+  });
+
+  it('re-enables nav buttons after exiting edit mode', async () => {
+    const store = useSessionStore.getState();
+    store.setSession(makeSession({ urls: ['https://a.com', 'https://b.com'], currentIndex: 0 }));
+    render(<HostDashboard />);
+    await userEvent.click(screen.getByRole('button', { name: /edit order/i }));
+    // Exit by clicking Edit order again (now shows as Done in the queue header)
+    // The "Edit order" button was replaced — find it by its emerald Done styling via test-id or re-click Edit order
+    // Simplest: just verify that after being in edit mode, clicking the queue Done button re-enables nav
+    const doneBtn = screen
+      .getAllByRole('button')
+      .find(
+        (btn) => btn.textContent?.includes('Done') && !btn.textContent?.includes('All tickets'),
+      );
+    if (doneBtn) await userEvent.click(doneBtn);
+    // Next and Skip should be enabled again
+    expect(screen.getByRole('button', { name: /next/i })).not.toBeDisabled();
+    expect(screen.getByRole('button', { name: /skip/i })).not.toBeDisabled();
+  });
+
+  it('does not emit HOST_NAVIGATE when nav buttons are clicked in edit mode', async () => {
+    const store = useSessionStore.getState();
+    store.setSession(makeSession({ urls: ['https://a.com', 'https://b.com'], currentIndex: 0 }));
+    render(<HostDashboard />);
+    await userEvent.click(screen.getByRole('button', { name: /edit order/i }));
+    mockEmit.mockClear();
+    // Buttons are disabled — clicks are no-ops
+    await userEvent.click(screen.getByRole('button', { name: /next/i }));
+    expect(mockEmit).not.toHaveBeenCalledWith('host_navigate', expect.anything());
+  });
+
   it('emits HOST_ADD_URL when a valid URL is submitted', async () => {
     render(<HostDashboard />);
     const input = screen.getByPlaceholderText(/paste a url/i);

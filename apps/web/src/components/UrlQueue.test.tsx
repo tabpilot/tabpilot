@@ -135,3 +135,72 @@ describe('UrlQueue — story point controls (host view)', () => {
     expect(screen.queryByTitle('Story point: skipped')).not.toBeInTheDocument();
   });
 });
+
+describe('UrlQueue — mark-done badge click (host view)', () => {
+  const onSetVote = vi.fn();
+  const onResetVote = vi.fn();
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  // 3 URLs, currentIndex=1 → index 0 is past, index 2 is future
+  function renderMarkDone(overrides: Partial<React.ComponentProps<typeof UrlQueue>> = {}) {
+    return render(
+      <UrlQueue
+        urls={['https://a.com', 'https://b.com', 'https://c.com']}
+        currentIndex={1}
+        isHost
+        onSetVote={onSetVote}
+        onResetVote={onResetVote}
+        {...overrides}
+      />,
+    );
+  }
+
+  it('hides drag handles when not in edit mode (default)', () => {
+    renderMarkDone();
+    expect(screen.queryAllByLabelText('Drag to reorder')).toHaveLength(0);
+  });
+
+  it('shows drag handles for all rows when isEditMode is true', () => {
+    renderMarkDone({ isEditMode: true });
+    const handles = screen.getAllByLabelText('Drag to reorder');
+    expect(handles.length).toBe(3);
+  });
+
+  it('clicking the index badge on a future ticket calls onSetVote with "skipped"', async () => {
+    renderMarkDone();
+    // Future ticket is index 2 (3rd badge button)
+    const badges = screen.getAllByRole('button', { name: /mark ticket \d+ as done/i });
+    // badge for the future ticket
+    await userEvent.click(badges[badges.length - 1]);
+    expect(onSetVote).toHaveBeenCalledWith(2, 'skipped');
+  });
+
+  it('clicking the badge on a future ticket already marked skipped calls onResetVote', async () => {
+    renderMarkDone({ savedVotes: { 2: 'skipped' } });
+    const badges = screen.getAllByRole('button', { name: /unmark ticket \d+ as done/i });
+    await userEvent.click(badges[0]);
+    expect(onResetVote).toHaveBeenCalledWith(2);
+  });
+
+  it('does not render a clickable badge on the current ticket', () => {
+    renderMarkDone();
+    // Only future (and past with no vote) should have clickable badges
+    // current (index 1) should NOT have a mark-done button
+    const markDoneBtns = screen.queryAllByRole('button', { name: /mark ticket 2 as done/i });
+    expect(markDoneBtns).toHaveLength(0);
+  });
+
+  it('does not render a clickable badge on a future ticket that already has a real vote', () => {
+    renderMarkDone({ savedVotes: { 2: '5' } });
+    const markDoneBtns = screen.queryAllByRole('button', { name: /mark ticket 3 as done/i });
+    expect(markDoneBtns).toHaveLength(0);
+  });
+
+  it('shows pre-done styling on a future ticket marked as skipped', () => {
+    renderMarkDone({ savedVotes: { 2: 'skipped' } });
+    expect(screen.getAllByLabelText('Skipped').length).toBeGreaterThan(0);
+  });
+});

@@ -230,23 +230,21 @@ export class SessionsService {
     if (!doc) return null;
 
     const urls = [...doc.urls];
-    const { currentIndex } = doc;
 
-    // Only strictly-future items (index > currentIndex) may be reordered
     if (
       fromIndex < 0 ||
       fromIndex >= urls.length ||
       toIndex < 0 ||
       toIndex >= urls.length ||
-      fromIndex === toIndex ||
-      fromIndex <= currentIndex ||
-      toIndex <= currentIndex
+      fromIndex === toIndex
     )
       return null;
 
     const [moved] = urls.splice(fromIndex, 1);
     urls.splice(toIndex, 0, moved);
 
+    // currentIndex is a queue position (slot), not tied to a URL.
+    // Reordering never advances or retreats the queue pointer.
     return this.sessionModel
       .findOneAndUpdate({ sessionId }, { urls }, { returnDocument: 'after' })
       .exec();

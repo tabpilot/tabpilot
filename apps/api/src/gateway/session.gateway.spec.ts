@@ -1179,6 +1179,37 @@ describe('SessionGateway', () => {
         expect.objectContaining({ code: 'REORDER_NOT_ALLOWED' }),
       );
     });
+
+    it('should not remap in-memory savedVotes after reorder (slot-based, not URL-based)', async () => {
+      const client = makeMockSocket();
+      const savedVotesMap = (gateway as unknown as { savedVotes: Map<string, Map<number, string>> })
+        .savedVotes;
+      savedVotesMap.set(
+        'session-1',
+        new Map([
+          [0, '5'],
+          [1, '8'],
+        ]),
+      );
+
+      const reorderedDoc = makeSessionDoc({ urls: ['https://other.com', 'https://example.com'] });
+      sessionsService.validateHostKey.mockResolvedValue(true);
+      sessionsService.reorderUrls.mockResolvedValue(reorderedDoc);
+      sessionsService.toSessionDto.mockReturnValue(makeSessionDto());
+      participantsService.findBySession.mockResolvedValue([]);
+
+      await gateway.handleReorderUrls(client, {
+        sessionId: 'session-1',
+        hostKey: 'valid',
+        fromIndex: 0,
+        toIndex: 1,
+      });
+
+      // Slot 0 still has '5', slot 1 still has '8' — unchanged
+      const sv = savedVotesMap.get('session-1');
+      expect(sv?.get(0)).toBe('5');
+      expect(sv?.get(1)).toBe('8');
+    });
   });
 
   // -------------------------------------------------------------------------
