@@ -53,7 +53,7 @@ describe('TicketScoreBreakdown', () => {
   it('shows loading state while fetching', () => {
     mockUseTicketScore.mockReturnValue({ data: null, isLoading: true, error: null });
     render(<TicketScoreBreakdown url="https://example.com" />);
-    expect(screen.getByText('Scoring ticket...')).toBeTruthy();
+    expect(screen.getByText('Generating AI review…')).toBeTruthy();
   });
 
   it('renders nothing on error', () => {

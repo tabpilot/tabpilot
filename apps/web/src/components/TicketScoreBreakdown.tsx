@@ -269,9 +269,9 @@ export function TicketScoreBreakdown({ url, canRegenerate }: TicketScoreBreakdow
 
   if (isLoading) {
     return (
-      <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-zinc-800 bg-zinc-900/50">
-        <Loader2 className="h-3.5 w-3.5 animate-spin text-zinc-500" />
-        <span className="text-xs text-zinc-400">Scoring ticket...</span>
+      <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg border border-indigo-500/20 bg-indigo-500/5">
+        <Loader2 className="h-3.5 w-3.5 animate-spin text-indigo-400 flex-shrink-0" />
+        <span className="text-xs font-medium text-indigo-300">Generating AI review…</span>
       </div>
     );
   }

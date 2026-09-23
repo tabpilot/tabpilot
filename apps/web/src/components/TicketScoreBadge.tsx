@@ -1,5 +1,4 @@
-import { Loader2 } from 'lucide-react';
-import { useTicketScore } from '@/hooks/useTicketScore';
+import { useCachedTicketScore } from '@/hooks/useTicketScore';
 import { cn } from '@/lib/utils';
 
 function scoreColor(score: number): string {
@@ -13,11 +12,7 @@ interface TicketScoreBadgeProps {
 }
 
 export function TicketScoreBadge({ url }: TicketScoreBadgeProps) {
-  const { data: score, isLoading } = useTicketScore(url);
-
-  if (isLoading) {
-    return <Loader2 className="h-3 w-3 animate-spin text-zinc-500 flex-shrink-0" />;
-  }
+  const score = useCachedTicketScore(url);
 
   if (!score) return null;
 
