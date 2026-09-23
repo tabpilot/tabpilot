@@ -29,7 +29,6 @@ import { useUrlTitle } from '@/hooks/useUrlTitle';
 import { formatJiraTitle, isStoryPointConfigured, parseJiraUrl } from '@/lib/jira';
 import { cn, formatUrl, getFaviconUrl, safeUrl, truncateUrl } from '@/lib/utils';
 
-
 // ─── Story point validation ───────────────────────────────────────────────────
 
 const storyPointSchema = Yup.number()
@@ -256,7 +255,6 @@ function buildRowClassName(
   isFuture: boolean,
   isPreDone: boolean,
   isEditMode: boolean,
-  isHost: boolean,
   isDragging: boolean,
   isDragOverlay: boolean,
 ) {
@@ -329,7 +327,6 @@ function UrlRow({
     isFuture,
     isPreDone,
     isEditMode,
-    isHost,
     isDragging,
     isDragOverlay ?? false,
   );

@@ -44,22 +44,11 @@ import {
   UpdateParticipantProfileDto,
 } from './ws.dto';
 
-// biome-ignore lint/correctness/noUnusedVariables: utility kept for future use
-function isValidHttpUrl(url: string): boolean {
-  try {
-    const { protocol } = new URL(url);
-    return protocol === 'http:' || protocol === 'https:';
-  } catch {
-    return false;
-  }
-}
-
 interface SocketMeta {
   sessionId: string;
   participantId?: string;
   isHost: boolean;
 }
-
 
 @WebSocketGateway()
 export class SessionGateway implements OnGatewayConnection, OnGatewayDisconnect {
