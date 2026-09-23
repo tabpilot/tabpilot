@@ -458,7 +458,7 @@ export class SessionGateway implements OnGatewayConnection, OnGatewayDisconnect 
     @ConnectedSocket() client: Socket,
     @MessageBody() payload: HostNavigatePayload,
   ) {
-    const { sessionId, hostKey, direction, index } = payload;
+    const { sessionId, hostKey, direction, index, skip } = payload;
 
     const sessionDoc = await this.sessionsService.findById(sessionId);
     if (!sessionDoc) {
@@ -495,18 +495,24 @@ export class SessionGateway implements OnGatewayConnection, OnGatewayDisconnect 
 
     await this.sessionsService.updateCurrentIndex(sessionId, newIndex);
 
-    // Save the average vote for the ticket we're leaving (if any votes were cast),
-    // but only if the host hasn't already manually set a story point for this index.
-    const leavingVotes = this.getVotesForIndex(sessionId, sessionDoc.currentIndex);
-    const alreadyManuallySet = this.savedVotes.get(sessionId)?.has(sessionDoc.currentIndex);
-    if (!alreadyManuallySet && leavingVotes.size > 0) {
+    const leavingIndex = sessionDoc.currentIndex;
+    const alreadyManuallySet = this.savedVotes.get(sessionId)?.has(leavingIndex);
+    if (!alreadyManuallySet) {
       if (!this.savedVotes.has(sessionId)) this.savedVotes.set(sessionId, new Map());
-      const avg = this.computeAverage(leavingVotes);
-      // biome-ignore lint/style/noNonNullAssertion: set on the line above
-      this.savedVotes.get(sessionId)!.set(sessionDoc.currentIndex, avg);
-      const leavingUrl = sessionDoc.urls[sessionDoc.currentIndex];
-      if (leavingUrl) {
-        void this.sessionsService.setStoryPoint(sessionId, this.urlKey(leavingUrl), avg);
+      if (skip) {
+        // biome-ignore lint/style/noNonNullAssertion: set on the line above
+        this.savedVotes.get(sessionId)!.set(leavingIndex, 'skipped');
+      } else {
+        const leavingVotes = this.getVotesForIndex(sessionId, leavingIndex);
+        if (leavingVotes.size > 0) {
+          const avg = this.computeAverage(leavingVotes);
+          // biome-ignore lint/style/noNonNullAssertion: set on the line above
+          this.savedVotes.get(sessionId)!.set(leavingIndex, avg);
+          const leavingUrl = sessionDoc.urls[leavingIndex];
+          if (leavingUrl) {
+            void this.sessionsService.setStoryPoint(sessionId, this.urlKey(leavingUrl), avg);
+          }
+        }
       }
     }
 

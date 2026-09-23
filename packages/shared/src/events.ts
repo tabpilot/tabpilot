@@ -20,6 +20,7 @@ export interface HostNavigatePayload {
   hostKey: string;
   direction?: 'next' | 'prev';
   index?: number;
+  skip?: boolean;
 }
 
 export interface HostOpenUrlPayload {

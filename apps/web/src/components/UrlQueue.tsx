@@ -12,6 +12,7 @@ import { CSS } from '@dnd-kit/utilities';
 import { motion } from 'framer-motion';
 import {
   Check,
+  ChevronsRight,
   ExternalLink,
   GripVertical,
   Loader2,
@@ -181,7 +182,7 @@ function StoryPointControls({
 
   return (
     <>
-      {savedVote !== undefined && (
+      {savedVote !== undefined && savedVote !== 'skipped' && (
         <span
           className="min-w-[28px] h-6 px-1.5 flex items-center justify-center rounded-md bg-zinc-700/60 text-zinc-300 text-xs font-bold border border-zinc-600/50"
           title={`Story point: ${savedVote}`}
@@ -283,6 +284,7 @@ function UrlRow({
   const isCurrent = index === currentIndex;
   const isPast = index < currentIndex;
   const isFuture = index > currentIndex;
+  const isSkipped = isPast && savedVote === 'skipped';
 
   const isJiraSpConfigured = isStoryPointConfigured(url, storyPointProjects ?? []);
 
@@ -362,7 +364,13 @@ function UrlRow({
           isFuture && 'bg-zinc-200 dark:bg-zinc-800 text-zinc-500',
         )}
       >
-        {isPast ? <Check className="h-3 w-3" /> : index + 1}
+        {isSkipped ? (
+          <ChevronsRight className="h-3 w-3" aria-label="Skipped" />
+        ) : isPast ? (
+          <Check className="h-3 w-3" />
+        ) : (
+          index + 1
+        )}
       </span>
 
       {/* Favicon */}
@@ -405,7 +413,7 @@ function UrlRow({
       )}
 
       {/* Saved average vote badge for past tickets (non-host view) */}
-      {isPast && !isHost && savedVote !== undefined && (
+      {isPast && !isHost && savedVote !== undefined && savedVote !== 'skipped' && (
         <span
           className="flex-shrink-0 min-w-[28px] h-6 px-1.5 flex items-center justify-center rounded-md bg-zinc-700/60 text-zinc-300 text-xs font-bold border border-zinc-600/50"
           title={`Story point: ${savedVote}`}

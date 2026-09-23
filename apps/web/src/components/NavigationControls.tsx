@@ -1,4 +1,4 @@
-import { CheckCircle, ChevronLeft, ChevronRight } from 'lucide-react';
+import { CheckCircle, ChevronLeft, ChevronRight, ChevronsRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
@@ -7,6 +7,7 @@ interface NavigationControlsProps {
   readonly total: number;
   readonly onPrevious: () => void;
   readonly onNext: () => void;
+  readonly onSkip: () => void;
   readonly onComplete: () => void;
   readonly completed?: boolean;
   readonly disabled?: boolean;
@@ -18,6 +19,7 @@ export function NavigationControls({
   total,
   onPrevious,
   onNext,
+  onSkip,
   onComplete,
   completed = false,
   disabled = false,
@@ -91,15 +93,30 @@ export function NavigationControls({
         {(() => {
           if (!isLast) {
             return (
-              <Button
-                variant="glow"
-                className={cn('flex-1 h-11 gap-2', 'disabled:opacity-30 disabled:shadow-none')}
-                onClick={onNext}
-                disabled={disabled}
-              >
-                Next
-                <ChevronRight className="h-5 w-5" />
-              </Button>
+              <div className="flex-1 flex gap-2">
+                <Button
+                  variant="outline"
+                  className={cn(
+                    'flex-1 h-11 gap-1.5 border-zinc-300 dark:border-zinc-700',
+                    'hover:border-amber-400 dark:hover:border-amber-500 hover:text-amber-600 dark:hover:text-amber-400',
+                    'disabled:opacity-30',
+                  )}
+                  onClick={onSkip}
+                  disabled={disabled}
+                >
+                  <ChevronsRight className="h-4 w-4" />
+                  Skip
+                </Button>
+                <Button
+                  variant="glow"
+                  className={cn('flex-1 h-11 gap-2', 'disabled:opacity-30 disabled:shadow-none')}
+                  onClick={onNext}
+                  disabled={disabled}
+                >
+                  Next
+                  <ChevronRight className="h-5 w-5" />
+                </Button>
+              </div>
             );
           }
           if (completed) {

@@ -67,6 +67,16 @@ export function useHostActions({
     [sessionId, hostKey, setIsGroomingComplete],
   );
 
+  const handleSkip = useCallback(() => {
+    if (!sessionId || !hostKey) return;
+    getSocket().emit(WS_EVENTS.HOST_NAVIGATE, {
+      sessionId,
+      hostKey,
+      direction: 'next',
+      skip: true,
+    });
+  }, [sessionId, hostKey]);
+
   const handleComplete = useCallback(() => {
     setIsGroomingComplete(true);
     confetti({
@@ -223,6 +233,7 @@ export function useHostActions({
     handleRevealVotes,
     handleStartSession,
     handleNavigate,
+    handleSkip,
     handleComplete,
     handleJumpTo,
     handleToggleLock,

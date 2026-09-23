@@ -8,6 +8,7 @@ const baseProps = {
   total: 3,
   onPrevious: vi.fn(),
   onNext: vi.fn(),
+  onSkip: vi.fn(),
   onComplete: vi.fn(),
 };
 
@@ -66,5 +67,27 @@ describe('NavigationControls', () => {
   it('displays the correct progress fraction', () => {
     render(<NavigationControls {...baseProps} currentIndex={1} total={3} />);
     expect(screen.getByText('2 / 3')).toBeInTheDocument();
+  });
+
+  it('shows Skip button when not on the last item', () => {
+    render(<NavigationControls {...baseProps} currentIndex={0} total={3} />);
+    expect(screen.getByRole('button', { name: /skip/i })).toBeInTheDocument();
+  });
+
+  it('does not show Skip button on the last item', () => {
+    render(<NavigationControls {...baseProps} currentIndex={2} total={3} />);
+    expect(screen.queryByRole('button', { name: /skip/i })).not.toBeInTheDocument();
+  });
+
+  it('calls onSkip when Skip is clicked', async () => {
+    const onSkip = vi.fn();
+    render(<NavigationControls {...baseProps} currentIndex={0} onSkip={onSkip} />);
+    await userEvent.click(screen.getByRole('button', { name: /skip/i }));
+    expect(onSkip).toHaveBeenCalledTimes(1);
+  });
+
+  it('disables Skip button when disabled prop is true', () => {
+    render(<NavigationControls {...baseProps} currentIndex={0} disabled={true} />);
+    expect(screen.getByRole('button', { name: /skip/i })).toBeDisabled();
   });
 });

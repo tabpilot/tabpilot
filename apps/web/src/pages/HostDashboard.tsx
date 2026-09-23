@@ -307,6 +307,7 @@ export function HostDashboard() {
     handleRevealVotes,
     handleStartSession,
     handleNavigate,
+    handleSkip,
     handleComplete,
     handleJumpTo,
     handleToggleLock,
@@ -653,6 +654,7 @@ export function HostDashboard() {
               total={session.urls.length}
               onPrevious={() => handleNavigate('prev')}
               onNext={() => handleNavigate('next')}
+              onSkip={handleSkip}
               onComplete={handleComplete}
               completed={isGroomingComplete}
               disabled={!isConnected}

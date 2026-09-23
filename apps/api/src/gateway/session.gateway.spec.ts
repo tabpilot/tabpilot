@@ -555,6 +555,73 @@ describe('SessionGateway', () => {
       expect(sessionsService.updateCurrentIndex).not.toHaveBeenCalled();
       expect(mockServer.emit).not.toHaveBeenCalledWith(WS_EVENTS.NAVIGATE_TO, expect.anything());
     });
+
+    it('should mark index as skipped in savedVotes when skip is true', async () => {
+      const client = makeMockSocket();
+      const sessionDoc = makeSessionDoc({ currentIndex: 0 });
+      sessionsService.validateHostKey.mockResolvedValue(true);
+      sessionsService.findById.mockResolvedValue(sessionDoc);
+      sessionsService.updateCurrentIndex.mockResolvedValue(makeSessionDoc({ currentIndex: 1 }));
+
+      await gateway.handleNavigate(client, {
+        sessionId: 'session-1',
+        hostKey: 'valid',
+        direction: 'next',
+        skip: true,
+      });
+
+      const emitCalls = (mockServer.emit as jest.Mock).mock.calls;
+      const navCall = emitCalls.find(([event]: [string]) => event === WS_EVENTS.NAVIGATE_TO);
+      expect(navCall[1].savedVotes).toEqual({ 0: 'skipped' });
+    });
+
+    it('should not persist story point to DB when skip is true', async () => {
+      const client = makeMockSocket();
+      const sessionDoc = makeSessionDoc({ currentIndex: 0 });
+      sessionsService.validateHostKey.mockResolvedValue(true);
+      sessionsService.findById.mockResolvedValue(sessionDoc);
+      sessionsService.updateCurrentIndex.mockResolvedValue(makeSessionDoc({ currentIndex: 1 }));
+
+      await gateway.handleNavigate(client, {
+        sessionId: 'session-1',
+        hostKey: 'valid',
+        direction: 'next',
+        skip: true,
+      });
+
+      expect(sessionsService.setStoryPoint).not.toHaveBeenCalled();
+    });
+
+    it('should not overwrite an existing savedVote when skip is true', async () => {
+      const client1 = makeMockSocket('socket-1');
+      (gateway as unknown as { socketMeta: Map<string, object> }).socketMeta.set('socket-1', {
+        sessionId: 'session-1',
+        participantId: 'p-1',
+        isHost: false,
+      });
+      sessionsService.validateHostKey.mockResolvedValue(true);
+      const activeDoc = makeSessionDoc({ votingEnabled: true, state: 'active', currentIndex: 0 });
+      sessionsService.findById.mockResolvedValue(activeDoc);
+      sessionsService.updateCurrentIndex.mockResolvedValue(makeSessionDoc({ currentIndex: 1 }));
+
+      // Votes were cast — skip should still mark as "skipped", not save vote average
+      await gateway.handleSubmitVote(client1, {
+        sessionId: 'session-1',
+        participantId: 'p-1',
+        value: '5',
+      });
+
+      await gateway.handleNavigate(client1, {
+        sessionId: 'session-1',
+        hostKey: 'valid',
+        direction: 'next',
+        skip: true,
+      });
+
+      const emitCalls = (mockServer.emit as jest.Mock).mock.calls;
+      const navCall = emitCalls.find(([event]: [string]) => event === WS_EVENTS.NAVIGATE_TO);
+      expect(navCall[1].savedVotes).toEqual({ 0: 'skipped' });
+    });
   });
 
   // -------------------------------------------------------------------------

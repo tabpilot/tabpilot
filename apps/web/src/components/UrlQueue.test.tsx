@@ -124,4 +124,14 @@ describe('UrlQueue — story point controls (host view)', () => {
     expect(screen.queryByTitle('Set story point')).not.toBeInTheDocument();
     expect(screen.queryByTitle('Reset story point')).not.toBeInTheDocument();
   });
+
+  it('shows skip icon instead of checkmark for skipped tickets', () => {
+    renderQueue({ savedVotes: { 0: 'skipped', 1: '8' } });
+    expect(screen.getByLabelText('Skipped')).toBeInTheDocument();
+  });
+
+  it('does not show story point badge for skipped tickets', () => {
+    renderQueue({ savedVotes: { 0: 'skipped' } });
+    expect(screen.queryByTitle('Story point: skipped')).not.toBeInTheDocument();
+  });
 });

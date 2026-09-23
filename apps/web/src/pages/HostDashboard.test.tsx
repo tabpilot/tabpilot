@@ -414,6 +414,17 @@ describe('HostDashboard — navigation controls', () => {
     );
   });
 
+  it('emits HOST_NAVIGATE with skip: true when Skip is clicked', async () => {
+    const store = useSessionStore.getState();
+    store.setSession(makeSession({ urls: ['https://a.com', 'https://b.com'], currentIndex: 0 }));
+    render(<HostDashboard />);
+    await userEvent.click(screen.getByRole('button', { name: /skip/i }));
+    expect(mockEmit).toHaveBeenCalledWith(
+      'host_navigate',
+      expect.objectContaining({ direction: 'next', skip: true }),
+    );
+  });
+
   it('emits HOST_ADD_URL when a valid URL is submitted', async () => {
     render(<HostDashboard />);
     const input = screen.getByPlaceholderText(/paste a url/i);
