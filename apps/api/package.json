@@ -16,14 +16,14 @@
     "@fastify/helmet": "^13.1.0",
     "@fastify/static": "^10.1.2",
     "@google/genai": "^2.13.0",
-    "@nestjs/common": "^11.1.28",
-    "@nestjs/core": "^11.1.28",
-    "@nestjs/mongoose": "^11.0.4",
-    "@nestjs/platform-fastify": "^11.1.28",
-    "@nestjs/platform-socket.io": "^11.1.28",
-    "@nestjs/swagger": "^11.4.6",
+    "@nestjs/common": "^12.0.1",
+    "@nestjs/core": "^12.0.1",
+    "@nestjs/mongoose": "^12.0.0",
+    "@nestjs/platform-fastify": "^12.0.1",
+    "@nestjs/platform-socket.io": "^12.0.1",
+    "@nestjs/swagger": "^12.0.1",
     "@nestjs/throttler": "^6.5.0",
-    "@nestjs/websockets": "^11.1.28",
+    "@nestjs/websockets": "^12.0.1",
     "@tabpilot/shared": "workspace:*",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.15.1",
@@ -33,9 +33,9 @@
     "socket.io": "^4.8.3"
   },
   "devDependencies": {
-    "@nestjs/cli": "^11.0.24",
-    "@nestjs/schematics": "^11.1.0",
-    "@nestjs/testing": "^11.1.28",
+    "@nestjs/cli": "^12.0.0",
+    "@nestjs/schematics": "^12.0.0",
+    "@nestjs/testing": "^12.0.1",
     "@types/jest": "^30.0.0",
     "@types/node": "^26.1.1",
     "jest": "^30.4.2",
@@ -44,7 +44,7 @@
     "ts-jest": "^29.4.12",
     "ts-node": "^10.9.2",
     "tsx": "^4.23.1",
-    "typescript": "^5.9.3"
+    "typescript": "^7.0.2"
   },
   "jest": {
     "moduleFileExtensions": [
