@@ -1,5 +1,4 @@
 import { WS_EVENTS } from '@tabpilot/shared';
-import confetti from 'canvas-confetti';
 import { AnimatePresence, motion } from 'framer-motion';
 import { CheckCircle, ExternalLink, Users } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -18,6 +17,7 @@ import { useSocket } from '@/hooks/useSocket';
 import { useTabSync } from '@/hooks/useTabSync';
 import { usePrefetchTicketScores } from '@/hooks/useTicketScore';
 import { useTicketScoreStatus } from '@/hooks/useTicketScoreStatus';
+import { fireCompletionConfetti } from '@/lib/completionConfetti';
 import { getSocket } from '@/lib/socket';
 import { cn, formatUrl, getFaviconUrl, safeUrl, truncateUrl } from '@/lib/utils';
 import { useSessionStore } from '@/store/sessionStore';
@@ -104,13 +104,13 @@ export function ParticipantView() {
 
   const handleGroomingComplete = useCallback(() => {
     setGroomingComplete(true);
-    confetti({
-      particleCount: 160,
-      spread: 80,
-      origin: { y: 0.7 },
-      colors: ['#6366f1', '#8b5cf6', '#06b6d4', '#10b981', '#f59e0b'],
-    });
+    fireCompletionConfetti();
     toast.success('All tickets groomed!', { icon: '🎉', duration: 5000 });
+  }, []);
+
+  const handleTeamQueueCompleted = useCallback(({ queueName }: { queueName: string }) => {
+    fireCompletionConfetti();
+    toast.success(`${queueName} queue complete!`, { icon: '🎉', duration: 5000 });
   }, []);
 
   useSocket({
@@ -118,6 +118,7 @@ export function ParticipantView() {
     participantId,
     onNavigate: handleNavigate,
     onGroomingComplete: handleGroomingComplete,
+    onTeamQueueCompleted: handleTeamQueueCompleted,
   });
 
   // Navigate to current URL on mount if session is active and sync enabled

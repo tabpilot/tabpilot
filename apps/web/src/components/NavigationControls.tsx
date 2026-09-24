@@ -9,6 +9,12 @@ interface NavigationControlsProps {
   readonly onNext: () => void;
   readonly onSkip: () => void;
   readonly onComplete: () => void;
+  readonly onFinishQueue?: () => void;
+  readonly showFinishQueue?: boolean;
+  readonly queueCompleted?: boolean;
+  readonly queueName?: string;
+  readonly queuePosition?: number;
+  readonly queueTotal?: number;
   readonly completed?: boolean;
   readonly disabled?: boolean;
   /** When false, the last ticket keeps a disabled Next button instead of Complete. */
@@ -23,6 +29,12 @@ export function NavigationControls({
   onNext,
   onSkip,
   onComplete,
+  onFinishQueue,
+  showFinishQueue = false,
+  queueCompleted = false,
+  queueName = 'Team',
+  queuePosition,
+  queueTotal,
   completed = false,
   disabled = false,
   completeOnLast = true,
@@ -30,7 +42,12 @@ export function NavigationControls({
 }: NavigationControlsProps) {
   const isFirst = currentIndex === 0;
   const isLast = currentIndex === total - 1;
-  const progress = total > 0 ? ((currentIndex + 1) / total) * 100 : 0;
+  const queueMode = showFinishQueue && queuePosition !== undefined && queueTotal !== undefined;
+  const position = queueMode ? queuePosition : currentIndex;
+  const itemCount = queueMode ? queueTotal : total;
+  const isQueueFirst = queueMode ? queuePosition === 0 : isFirst;
+  const isQueueLast = queueMode ? queuePosition === queueTotal - 1 : isLast;
+  const progress = itemCount > 0 ? ((position + 1) / itemCount) * 100 : 0;
 
   return (
     <div
@@ -48,13 +65,34 @@ export function NavigationControls({
           All tickets groomed!
         </div>
       )}
+      {showFinishQueue && queueCompleted && (
+        <div
+          className="flex items-center justify-center gap-2 py-2 px-3 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-sm font-medium"
+          role="status"
+        >
+          <CheckCircle className="h-4 w-4 flex-shrink-0" />
+          {queueName} queue complete
+        </div>
+      )}
+      {showFinishQueue && isQueueLast && !queueCompleted && (
+        <p className="text-center text-xs text-zinc-500" aria-live="polite">
+          Last ticket in {queueName}. Finish the queue when you’re ready to move on.
+        </p>
+      )}
 
       {/* Progress bar */}
       <div className="flex items-center gap-3">
         <span className="text-xs text-zinc-500 font-medium w-12 flex-shrink-0">
-          {currentIndex + 1} / {total}
+          {position + 1} / {itemCount}
         </span>
-        <div className="flex-1 h-1.5 bg-zinc-200 dark:bg-zinc-800 rounded-full overflow-hidden">
+        <div
+          className="flex-1 h-1.5 bg-zinc-200 dark:bg-zinc-800 rounded-full overflow-hidden"
+          role="progressbar"
+          aria-label={`${queueName} queue progress`}
+          aria-valuemin={0}
+          aria-valuemax={itemCount}
+          aria-valuenow={position + 1}
+        >
           <div
             className={cn(
               'h-full rounded-full transition-all duration-500 ease-out',
@@ -69,7 +107,6 @@ export function NavigationControls({
           {Math.round(progress)}%
         </span>
       </div>
-
       {/* Navigation buttons */}
       <div className="flex items-center gap-3">
         <Button
@@ -80,7 +117,7 @@ export function NavigationControls({
             'disabled:opacity-30',
           )}
           onClick={onPrevious}
-          disabled={disabled || isFirst}
+          disabled={disabled || isQueueFirst}
         >
           <ChevronLeft className="h-5 w-5" />
           Previous
@@ -88,9 +125,9 @@ export function NavigationControls({
 
         <div className="flex-shrink-0 text-center px-4">
           <div className="text-sm font-bold text-zinc-800 dark:text-zinc-200">
-            Ticket {currentIndex + 1}
+            Ticket {position + 1}
           </div>
-          <div className="text-xs text-zinc-500">of {total}</div>
+          <div className="text-xs text-zinc-500">of {itemCount}</div>
         </div>
 
         {(() => {
@@ -103,14 +140,38 @@ export function NavigationControls({
                 'disabled:opacity-30',
               )}
               onClick={onSkip}
-              disabled={disabled || completed}
+              disabled={disabled || completed || (showFinishQueue && queueCompleted)}
             >
               <ChevronsRight className="h-4 w-4" />
               Skip
             </Button>
           );
 
-          if (!isLast || !completeOnLast) {
+          if (showFinishQueue && isQueueLast && onFinishQueue) {
+            return (
+              <div className="flex-1 flex gap-2">
+                {skipBtn}
+                {queueCompleted ? (
+                  <Button variant="outline" className="flex-1 h-11 gap-2" disabled>
+                    Queue complete
+                    <CheckCircle className="h-5 w-5" />
+                  </Button>
+                ) : (
+                  <Button
+                    variant="glow"
+                    className="flex-1 h-11 gap-2 disabled:opacity-30 disabled:shadow-none"
+                    onClick={onFinishQueue}
+                    disabled={disabled}
+                  >
+                    Finish queue
+                    <CheckCircle className="h-5 w-5" />
+                  </Button>
+                )}
+              </div>
+            );
+          }
+
+          if (!isQueueLast || !completeOnLast) {
             return (
               <div className="flex-1 flex gap-2">
                 {skipBtn}
@@ -118,7 +179,7 @@ export function NavigationControls({
                   variant="glow"
                   className={cn('flex-1 h-11 gap-2', 'disabled:opacity-30 disabled:shadow-none')}
                   onClick={onNext}
-                  disabled={disabled || (isLast && !completeOnLast)}
+                  disabled={disabled || (isQueueLast && !completeOnLast)}
                 >
                   Next
                   <ChevronRight className="h-5 w-5" />

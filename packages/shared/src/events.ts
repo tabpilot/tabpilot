@@ -1,4 +1,4 @@
-import type { Participant, Session } from './types';
+import type { Participant, Session, TeamQueueProgressUpdate } from './types';
 
 // ─── Client → Server ──────────────────────────────────────────────────────────
 
@@ -21,6 +21,8 @@ export interface HostNavigatePayload {
   direction?: 'next' | 'prev';
   index?: number;
   skip?: boolean;
+  /** Team queue cursor to persist with this navigation. */
+  teamQueueProgress?: TeamQueueProgressUpdate;
 }
 
 export interface HostOpenUrlPayload {
@@ -209,6 +211,14 @@ export interface SavedVotesUpdatedPayload {
   savedVotes: Record<number, string>;
 }
 
+export interface TeamQueueProgressUpdatedPayload {
+  teamQueueProgress: Record<string, number>;
+}
+
+export interface TeamQueueCompletedPayload {
+  queueName: string;
+}
+
 export interface TicketScoreUpdatePayload {
   /** Jira issue key (e.g. "PROJ-123") or "url:<raw-url>" for non-Jira tickets */
   key: string;
@@ -238,6 +248,7 @@ export const WS_EVENTS = {
   UPDATE_HOST_PROFILE: 'update_host_profile',
 
   GROOMING_COMPLETE: 'grooming_complete',
+  TEAM_QUEUE_COMPLETED: 'team_queue_completed',
   HOST_SET_SAVED_VOTE: 'host_set_saved_vote',
   HOST_RESET_SAVED_VOTE: 'host_reset_saved_vote',
   HOST_RESET_VOTES: 'host_reset_votes',
@@ -256,6 +267,7 @@ export const WS_EVENTS = {
   VOTE_UPDATE: 'vote_update',
   VOTES_REVEALED: 'votes_revealed',
   SAVED_VOTES_UPDATED: 'saved_votes_updated',
+  TEAM_QUEUE_PROGRESS_UPDATED: 'team_queue_progress_updated',
   TICKET_SCORE_UPDATE: 'ticket_score_update',
   ERROR: 'error',
 } as const;

@@ -27,6 +27,8 @@ import {
   type SavedVotesUpdatedPayload,
   type SessionStartedPayload,
   type SessionStatePayload,
+  type TeamQueueCompletedPayload,
+  type TeamQueueProgressUpdatedPayload,
   type TicketScoreUpdatePayload,
   type UpdateHostProfilePayload,
   type VotesRevealedPayload,
@@ -42,6 +44,7 @@ import { TicketScoreService } from '../ticket-score/ticket-score.service';
 import {
   HostActionDto,
   HostAddUrlDto,
+  HostTeamQueueCompleteDto,
   JoinSessionDto,
   KickParticipantDto,
   SubmitVoteDto,
@@ -564,7 +567,7 @@ export class SessionGateway implements OnGatewayConnection, OnGatewayDisconnect 
     @ConnectedSocket() client: Socket,
     @MessageBody() payload: HostNavigatePayload,
   ) {
-    const { sessionId, hostKey, direction, index, skip } = payload;
+    const { sessionId, hostKey, direction, index, skip, teamQueueProgress } = payload;
 
     const sessionDoc = await this.sessionsService.findById(sessionId);
     if (!sessionDoc) {
@@ -581,6 +584,37 @@ export class SessionGateway implements OnGatewayConnection, OnGatewayDisconnect 
         code: 'INVALID_HOST_KEY',
       } satisfies WsErrorPayload);
       return;
+    }
+
+    if (teamQueueProgress) {
+      const { queueKey, position } = teamQueueProgress;
+      if (
+        !sessionDoc.teamQueuesEnabled ||
+        typeof queueKey !== 'string' ||
+        queueKey.length === 0 ||
+        !Number.isInteger(position) ||
+        position < 0 ||
+        position > sessionDoc.urls.length
+      ) {
+        client.emit(WS_EVENTS.ERROR, {
+          message: 'Invalid team queue progress.',
+          code: 'INVALID_TEAM_QUEUE_PROGRESS',
+        } satisfies WsErrorPayload);
+        return;
+      }
+      const updated = await this.sessionsService.setTeamQueueProgress(
+        sessionId,
+        queueKey,
+        position,
+      );
+      const teamQueueProgressRecord = this.sessionsService.toSessionDto(updated)
+        ?.teamQueueProgress ?? {
+        [queueKey]: position,
+      };
+      const progressPayload: TeamQueueProgressUpdatedPayload = {
+        teamQueueProgress: teamQueueProgressRecord,
+      };
+      this.server.to(sessionId).emit(WS_EVENTS.TEAM_QUEUE_PROGRESS_UPDATED, progressPayload);
     }
 
     const total = sessionDoc.urls.length;
@@ -718,6 +752,26 @@ export class SessionGateway implements OnGatewayConnection, OnGatewayDisconnect 
 
     // Broadcast to all participants except the host who triggered it
     client.to(sessionId).emit(WS_EVENTS.GROOMING_COMPLETE, {});
+  }
+
+  @SubscribeMessage(WS_EVENTS.TEAM_QUEUE_COMPLETED)
+  async handleTeamQueueCompleted(
+    @ConnectedSocket() client: Socket,
+    @MessageBody(new ValidationPipe({ whitelist: true, transform: true }))
+    payload: HostTeamQueueCompleteDto,
+  ) {
+    const { sessionId, hostKey, queueName } = payload;
+    const isValid = await this.sessionsService.validateHostKey(sessionId, hostKey);
+    if (!isValid) {
+      client.emit(WS_EVENTS.ERROR, {
+        message: 'Invalid host key',
+        code: 'INVALID_HOST_KEY',
+      } satisfies WsErrorPayload);
+      return;
+    }
+    client.to(sessionId).emit(WS_EVENTS.TEAM_QUEUE_COMPLETED, {
+      queueName,
+    } satisfies TeamQueueCompletedPayload);
   }
 
   @SubscribeMessage(WS_EVENTS.HOST_ADD_URL)

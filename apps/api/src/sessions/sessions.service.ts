@@ -7,6 +7,7 @@ import type {
   Session,
   SessionState,
 } from '@tabpilot/shared';
+import { decodeTeamQueueProgressKey, encodeTeamQueueProgressKey } from '@tabpilot/shared';
 import type { Model } from 'mongoose';
 import { CreateSessionDto } from './dto/create-session.dto';
 import { SessionDoc, type SessionDocument } from './session.schema';
@@ -140,11 +141,33 @@ export class SessionsService {
     return doc;
   }
 
+  async setTeamQueueProgress(
+    sessionId: string,
+    queueKey: string,
+    position: number,
+  ): Promise<SessionDocument> {
+    const storageKey = encodeTeamQueueProgressKey(queueKey);
+    const doc = await this.sessionModel
+      .findOneAndUpdate(
+        { sessionId },
+        { $set: { [`teamQueueProgress.${storageKey}`]: position } },
+        { returnDocument: 'after' },
+      )
+      .exec();
+    if (!doc) throw new NotFoundException(`Session ${sessionId} not found`);
+    return doc;
+  }
+
   toSessionDto(doc: SessionDocument): Session {
     const obj = doc.toObject() as SessionDoc & {
       createdAt?: Date;
       updatedAt?: Date;
     };
+    const storedQueueProgress = obj.teamQueueProgress ?? new Map<string, number>();
+    const queueProgressEntries =
+      storedQueueProgress instanceof Map
+        ? Array.from(storedQueueProgress.entries())
+        : (Object.entries(storedQueueProgress) as Array<[string, number]>);
     return {
       id: obj.sessionId,
       name: obj.name,
@@ -161,6 +184,9 @@ export class SessionsService {
       state: obj.state,
       votingEnabled: obj.votingEnabled,
       teamQueuesEnabled: obj.teamQueuesEnabled ?? false,
+      teamQueueProgress: Object.fromEntries(
+        queueProgressEntries.map(([key, position]) => [decodeTeamQueueProgressKey(key), position]),
+      ),
       isLocked: obj.isLocked ?? false,
       createdAt: obj.createdAt ? obj.createdAt.toISOString() : new Date().toISOString(),
       expiresAt: obj.expiresAt.toISOString(),

@@ -471,8 +471,7 @@ describe('UrlQueue — team completion indicator', () => {
     expect(betaTab.querySelector('svg')).toBeNull();
   });
 
-  it('shows completion checkmark on a team tab when all its tickets are past', () => {
-    // currentIndex=2 means PROJ-1 (index 0) and PROJ-2 (index 1) are past for Alpha
+  it('shows completion checkmark on a team tab when its queue cursor reaches the end', () => {
     render(
       <UrlQueue
         urls={urls}
@@ -482,14 +481,15 @@ describe('UrlQueue — team completion indicator', () => {
         teamFilter="team:Beta"
         onTeamFilterChange={vi.fn()}
         savedVotes={{}}
+        teamQueueProgress={{ 'team:Alpha': 2 }}
       />,
     );
-    // Alpha (indices 0,1) are both < currentIndex (2) → complete
+    // Alpha has two tickets and its cursor has moved past both.
     const alphaTab = screen.getByRole('tab', { name: 'Alpha' });
     expect(alphaTab.querySelector('svg')).not.toBeNull();
   });
 
-  it('shows completion checkmark when all team tickets have savedVotes', () => {
+  it('shows completion checkmark when team queue progress reaches its end without saved votes', () => {
     render(
       <UrlQueue
         urls={urls}
@@ -498,10 +498,11 @@ describe('UrlQueue — team completion indicator', () => {
         teamQueuesEnabled
         teamFilter="team:Alpha"
         onTeamFilterChange={vi.fn()}
-        savedVotes={{ 2: 'skipped' }}
+        savedVotes={{}}
+        teamQueueProgress={{ 'team:Beta': 1 }}
       />,
     );
-    // Beta has only index 2, which has savedVotes → complete
+    // Beta has one ticket and its cursor has moved past it.
     const betaTab = screen.getByRole('tab', { name: 'Beta' });
     expect(betaTab.querySelector('svg')).not.toBeNull();
   });

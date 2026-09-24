@@ -518,6 +518,53 @@ describe('HostDashboard — navigation controls', () => {
     );
   });
 
+  it('celebrates and broadcasts when the last Jira in a team queue is finished', async () => {
+    const confettiMock = vi.mocked((await import('canvas-confetti')).default);
+    confettiMock.mockClear();
+    const urls = [
+      'https://example.atlassian.net/browse/PROJ-1',
+      'https://example.atlassian.net/browse/PROJ-2',
+    ];
+    jiraQueue.byUrl.set(urls[0], { team: 'Alpha', isJira: true, isLoading: false });
+    jiraQueue.byUrl.set(urls[1], { team: 'Alpha', isJira: true, isLoading: false });
+    useSessionStore
+      .getState()
+      .setSession(makeSession({ urls, currentIndex: 1, teamQueuesEnabled: true }));
+    render(<HostDashboard />);
+
+    await userEvent.click(screen.getByRole('button', { name: /finish queue/i }));
+
+    expect(confettiMock).toHaveBeenCalled();
+    expect(mockEmit).toHaveBeenCalledWith(WS_EVENTS.TEAM_QUEUE_COMPLETED, {
+      sessionId: 'session-1',
+      hostKey: 'host-key-123',
+      queueName: 'Alpha',
+    });
+  });
+
+  it('does not celebrate when another team queue remains', async () => {
+    const confettiMock = vi.mocked((await import('canvas-confetti')).default);
+    confettiMock.mockClear();
+    const urls = [
+      'https://example.atlassian.net/browse/PROJ-1',
+      'https://example.atlassian.net/browse/PROJ-2',
+      'https://example.atlassian.net/browse/PROJ-3',
+    ];
+    jiraQueue.byUrl.set(urls[0], { team: 'Alpha', isJira: true, isLoading: false });
+    jiraQueue.byUrl.set(urls[1], { team: 'Alpha', isJira: true, isLoading: false });
+    jiraQueue.byUrl.set(urls[2], { team: 'Beta', isJira: true, isLoading: false });
+    useSessionStore
+      .getState()
+      .setSession(makeSession({ urls, currentIndex: 1, teamQueuesEnabled: true }));
+    render(<HostDashboard />);
+
+    await userEvent.click(screen.getByRole('button', { name: /finish queue/i }));
+
+    expect(confettiMock).not.toHaveBeenCalled();
+    expect(mockEmit).not.toHaveBeenCalledWith(WS_EVENTS.TEAM_QUEUE_COMPLETED, expect.anything());
+    expect(screen.getByRole('tab', { name: 'Beta' })).toHaveAttribute('aria-selected', 'true');
+  });
+
   it('shows a success toast when Skip is clicked on the last ticket in team-queues mode', async () => {
     const urls = [
       'https://example.atlassian.net/browse/PROJ-1',
@@ -533,6 +580,35 @@ describe('HostDashboard — navigation controls', () => {
     await waitFor(() => {
       expect((toast as any).success).toHaveBeenCalled();
     });
+  });
+
+  it('finishes a team queue after navigating through it without saved story points', async () => {
+    const urls = [
+      'https://example.atlassian.net/browse/PROJ-1',
+      'https://example.atlassian.net/browse/PROJ-2',
+    ];
+    jiraQueue.byUrl.set(urls[0], { team: 'Alpha', isJira: true, isLoading: false });
+    jiraQueue.byUrl.set(urls[1], { team: 'Alpha', isJira: true, isLoading: false });
+    useSessionStore
+      .getState()
+      .setSession(makeSession({ urls, currentIndex: 1, teamQueuesEnabled: true }));
+    render(<HostDashboard />);
+
+    const finishQueue = screen.getByRole('button', { name: /finish queue/i });
+    expect(finishQueue).toBeEnabled();
+    await userEvent.click(finishQueue);
+
+    expect(mockEmit).toHaveBeenCalledWith(
+      WS_EVENTS.HOST_NAVIGATE,
+      expect.objectContaining({
+        index: 1,
+        teamQueueProgress: { queueKey: 'team:Alpha', position: 2 },
+      }),
+    );
+    expect(mockEmit).not.toHaveBeenCalledWith(
+      WS_EVENTS.HOST_SET_SAVED_VOTE,
+      expect.objectContaining({ value: expect.anything() }),
+    );
   });
 
   it('shows Edit order button and hides drag handles by default', () => {

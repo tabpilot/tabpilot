@@ -97,6 +97,11 @@ describe('SessionsService', () => {
       expect(session.currentIndex).toBe(0);
     });
 
+    it('should initialize team queue progress for new sessions', async () => {
+      const { session } = await service.create(defaultDto);
+      expect(session.teamQueueProgress).toEqual({});
+    });
+
     it('should correctly compute expiresAt based on expiryDays', async () => {
       const before = new Date();
       const { session } = await service.create({ ...defaultDto, expiryDays: 3 });
@@ -634,6 +639,17 @@ describe('SessionsService', () => {
         true,
       );
       expect(result).toBeNull();
+    });
+  });
+
+  describe('setTeamQueueProgress()', () => {
+    it('persists and returns progress keyed by the original team filter key', async () => {
+      const { session } = await service.create(defaultDto);
+
+      const doc = await service.setTeamQueueProgress(session.id, 'team:Alpha.v2', 2);
+
+      expect(doc.teamQueueProgress?.get('team%3AAlpha%2Ev2')).toBe(2);
+      expect(service.toSessionDto(doc).teamQueueProgress).toEqual({ 'team:Alpha.v2': 2 });
     });
   });
 

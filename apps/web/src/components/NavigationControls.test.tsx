@@ -53,6 +53,45 @@ describe('NavigationControls', () => {
     expect(onComplete).toHaveBeenCalledTimes(1);
   });
 
+  it('uses the primary Next action at the end of a team queue within the full session', async () => {
+    const onFinishQueue = vi.fn();
+    render(
+      <NavigationControls
+        {...baseProps}
+        currentIndex={1}
+        total={5}
+        showFinishQueue
+        queuePosition={2}
+        queueTotal={3}
+        onFinishQueue={onFinishQueue}
+        completeOnLast={false}
+      />,
+    );
+
+    expect(screen.getByText('3 / 3')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: /finish queue/i }));
+    expect(onFinishQueue).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('button', { name: /^next$/i })).not.toBeInTheDocument();
+  });
+
+  it('shows completed queue state after the queue cursor reaches its end', () => {
+    render(
+      <NavigationControls
+        {...baseProps}
+        currentIndex={2}
+        showFinishQueue
+        onFinishQueue={vi.fn()}
+        queueCompleted
+        queueName="Alpha"
+        completeOnLast={false}
+      />,
+    );
+
+    expect(screen.getByText('Alpha queue complete')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /queue complete/i })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: /finish queue/i })).not.toBeInTheDocument();
+  });
+
   it('disables buttons when disabled prop is true', () => {
     render(<NavigationControls {...baseProps} currentIndex={1} disabled={true} />);
     expect(screen.getByRole('button', { name: /previous/i })).toBeDisabled();

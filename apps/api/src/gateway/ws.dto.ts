@@ -34,6 +34,13 @@ export class HostActionDto {
   hostKey: string;
 }
 
+export class HostTeamQueueCompleteDto extends HostActionDto {
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(128)
+  queueName: string;
+}
+
 export class SubmitVoteDto {
   @IsString()
   @IsNotEmpty()

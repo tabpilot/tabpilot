@@ -261,6 +261,8 @@ interface RowProps {
   readonly canReorder?: boolean;
   /** When false, no row is highlighted as the currently-groomed ticket. */
   readonly highlightCurrent?: boolean;
+  readonly queuePosition?: number;
+  readonly progressPosition?: number;
 }
 
 function buildRowClassName(
@@ -312,10 +314,15 @@ function UrlRow({
   scoringEnabled,
   canReorder = true,
   highlightCurrent = true,
+  queuePosition,
+  progressPosition,
 }: RowProps) {
-  const isCurrent = highlightCurrent && index === currentIndex;
-  const isPast = index < currentIndex;
-  const isFuture = index > currentIndex;
+  const isPast =
+    progressPosition !== undefined && queuePosition !== undefined
+      ? queuePosition < progressPosition
+      : index < currentIndex;
+  const isCurrent = highlightCurrent && index === currentIndex && !isPast;
+  const isFuture = !isPast && !isCurrent;
   const isSkipped = isPast && savedVote === 'skipped';
   // Future ticket pre-marked as done via badge click (no navigation needed)
   const isPreDone = isFuture && savedVote === 'skipped';
@@ -634,7 +641,7 @@ function TeamFilterTabs({
                     : 'border-zinc-200 text-zinc-500 hover:border-zinc-300 hover:bg-zinc-100 hover:text-zinc-700 dark:border-zinc-800 dark:hover:border-zinc-700 dark:hover:bg-zinc-800/60 dark:hover:text-zinc-200',
               )}
             >
-              {done && !selected && <CheckCircle2 className="h-3 w-3 flex-shrink-0" />}
+              {done && <CheckCircle2 className="h-3 w-3 flex-shrink-0" />}
               {option.label}
             </button>
           );
@@ -674,6 +681,8 @@ export interface UrlQueueProps {
   readonly onTeamFilterChange?: (value: string) => void;
   /** When false, no row is marked as the ticket currently being groomed. */
   readonly highlightCurrent?: boolean;
+  /** Per-team next pending queue position, keyed by team filter key. */
+  readonly teamQueueProgress?: Record<string, number>;
 }
 
 export function UrlQueue({
@@ -695,6 +704,7 @@ export function UrlQueue({
   teamFilter: teamFilterProp,
   onTeamFilterChange,
   highlightCurrent = true,
+  teamQueueProgress,
 }: UrlQueueProps) {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [uncontrolledFilter, setUncontrolledFilter] = useState(ALL_TEAMS);
@@ -741,27 +751,45 @@ export function UrlQueue({
     (ticket) => ticket.isJira && !ticket.isLoading && !ticket.team,
   );
   const filtering = teamFilter !== ALL_TEAMS;
+  const visibleEntries = localUrls
+    .map((url, index) => ({ url, index, id: items[index] }))
+    .filter((entry) => matchesTeamFilter(ticketTeams[entry.index], teamFilter));
+  const queueProgressPosition = teamQueuesEnabled
+    ? Math.max(
+        0,
+        Math.min(
+          teamQueueProgress?.[teamFilter] ??
+            (matchesTeamFilter(ticketTeams[localCurrentIndex], teamFilter)
+              ? visibleEntries.filter((entry) => entry.index < localCurrentIndex).length
+              : 0),
+          visibleEntries.length,
+        ),
+      )
+    : undefined;
 
   const completedTeams = useMemo(() => {
-    if (!teamQueuesEnabled || !savedVotes) return undefined;
+    if (!teamQueuesEnabled) return undefined;
     const done = new Set<string>();
     const allKeys = [...teams.map((t) => `team:${t}`), ...(hasUnassigned ? [NO_TEAM] : [])];
     for (const key of allKeys) {
       const indices = localUrls
         .map((_, i) => i)
         .filter((i) => matchesTeamFilter(ticketTeams[i], key));
-      // A team is done when all its tickets are either already past or explicitly saved
-      const allDone =
-        indices.length > 0 &&
-        indices.every((i) => i < localCurrentIndex || savedVotes[i] !== undefined);
+      const progress =
+        teamQueueProgress?.[key] ??
+        (key === teamFilter && matchesTeamFilter(ticketTeams[localCurrentIndex], key)
+          ? indices.filter((index) => index < localCurrentIndex).length
+          : 0);
+      const allDone = indices.length > 0 && progress >= indices.length;
       if (allDone) done.add(key);
     }
     return done;
   }, [
     teamQueuesEnabled,
-    savedVotes,
+    teamQueueProgress,
     teams,
     hasUnassigned,
+    teamFilter,
     localUrls,
     ticketTeams,
     localCurrentIndex,
@@ -779,10 +807,6 @@ export function UrlQueue({
       setTeamFilter(fallback);
     }
   }, [teamFilter, teams, hasUnassigned, teamQueuesEnabled, setTeamFilter]);
-
-  const visibleEntries = localUrls
-    .map((url, index) => ({ url, index, id: items[index] }))
-    .filter((entry) => matchesTeamFilter(ticketTeams[entry.index], teamFilter));
 
   function handleDragStart(event: DragStartEvent) {
     setActiveId(event.active.id as string);
@@ -862,6 +886,8 @@ export function UrlQueue({
                 storyPointProjects={storyPointProjects}
                 scoringEnabled={scoringEnabled}
                 highlightCurrent={highlightCurrent}
+                queuePosition={visibleEntries.findIndex((visible) => visible.index === entry.index)}
+                progressPosition={queueProgressPosition}
               />
             </motion.div>
           ))}

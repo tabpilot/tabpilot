@@ -6,6 +6,8 @@ import type {
   ParticipantUpdatedPayload,
   SavedVotesUpdatedPayload,
   SessionStatePayload,
+  TeamQueueCompletedPayload,
+  TeamQueueProgressUpdatedPayload,
   TicketScoreUpdatePayload,
   VotesRevealedPayload,
   VoteUpdatePayload,
@@ -27,6 +29,7 @@ interface UseSocketOptions {
   hostKey?: string | null;
   onNavigate?: (url: string, index: number) => void;
   onGroomingComplete?: () => void;
+  onTeamQueueCompleted?: (payload: TeamQueueCompletedPayload) => void;
 }
 
 export function useSocket({
@@ -35,6 +38,7 @@ export function useSocket({
   hostKey,
   onNavigate,
   onGroomingComplete,
+  onTeamQueueCompleted,
 }: UseSocketOptions) {
   const [isConnected, setIsConnected] = useState(false);
   const queryClient = useQueryClient();
@@ -52,6 +56,11 @@ export function useSocket({
   useEffect(() => {
     onGroomingCompleteRef.current = onGroomingComplete;
   }, [onGroomingComplete]);
+
+  const onTeamQueueCompletedRef = useRef(onTeamQueueCompleted);
+  useEffect(() => {
+    onTeamQueueCompletedRef.current = onTeamQueueCompleted;
+  }, [onTeamQueueCompleted]);
 
   const navigate = useNavigate();
 
@@ -195,8 +204,19 @@ export function useSocket({
       onGroomingCompleteRef.current?.();
     };
 
+    const handleTeamQueueCompleted = (payload: TeamQueueCompletedPayload) => {
+      onTeamQueueCompletedRef.current?.(payload);
+    };
+
     const handleSavedVotesUpdated = (payload: SavedVotesUpdatedPayload) => {
       setSavedVotesMap(payload.savedVotes);
+    };
+
+    const handleTeamQueueProgressUpdated = (payload: TeamQueueProgressUpdatedPayload) => {
+      const currentSession = useSessionStore.getState().session;
+      if (currentSession) {
+        setSession({ ...currentSession, teamQueueProgress: payload.teamQueueProgress });
+      }
     };
 
     const handleTicketScoreUpdate = ({ key, score }: TicketScoreUpdatePayload) => {
@@ -225,9 +245,11 @@ export function useSocket({
     socket.on(WS_EVENTS.VOTE_UPDATE, handleVoteUpdate);
     socket.on(WS_EVENTS.VOTES_REVEALED, handleVotesRevealed);
     socket.on(WS_EVENTS.SAVED_VOTES_UPDATED, handleSavedVotesUpdated);
+    socket.on(WS_EVENTS.TEAM_QUEUE_PROGRESS_UPDATED, handleTeamQueueProgressUpdated);
     socket.on(WS_EVENTS.TICKET_SCORE_UPDATE, handleTicketScoreUpdate);
     socket.on(WS_EVENTS.SESSION_ENDED, handleSessionEnded);
     socket.on(WS_EVENTS.GROOMING_COMPLETE, handleGroomingComplete);
+    socket.on(WS_EVENTS.TEAM_QUEUE_COMPLETED, handleTeamQueueCompleted);
     socket.on(WS_EVENTS.ERROR, handleError);
 
     if (socket.connected) {
@@ -247,9 +269,11 @@ export function useSocket({
       socket.off(WS_EVENTS.VOTE_UPDATE, handleVoteUpdate);
       socket.off(WS_EVENTS.VOTES_REVEALED, handleVotesRevealed);
       socket.off(WS_EVENTS.SAVED_VOTES_UPDATED, handleSavedVotesUpdated);
+      socket.off(WS_EVENTS.TEAM_QUEUE_PROGRESS_UPDATED, handleTeamQueueProgressUpdated);
       socket.off(WS_EVENTS.TICKET_SCORE_UPDATE, handleTicketScoreUpdate);
       socket.off(WS_EVENTS.SESSION_ENDED, handleSessionEnded);
       socket.off(WS_EVENTS.GROOMING_COMPLETE, handleGroomingComplete);
+      socket.off(WS_EVENTS.TEAM_QUEUE_COMPLETED, handleTeamQueueCompleted);
       socket.off(WS_EVENTS.KICKED, handleKicked);
       socket.off(WS_EVENTS.ERROR, handleError);
       // Do NOT reset joinedSessionRef here — StrictMode's intermediate cleanup

@@ -315,6 +315,7 @@ export function HostDashboard() {
     handleNavigate,
     handleSkip,
     handleComplete,
+    handleTeamQueueComplete,
     handleJumpTo,
     handleNavigateToIndex,
     handleToggleLock,
@@ -361,12 +362,44 @@ export function HostDashboard() {
     queuePosition,
     step,
     nextIncompleteTeam,
+    progressUpdate,
+    progressPosition,
   } = useTeamQueues({
     urls: session?.urls ?? [],
     currentIndex: session?.currentIndex ?? 0,
     enabled: teamQueuesEnabled,
+    teamQueueProgress: session?.teamQueueProgress ?? {},
     onJumpToIndex: handleNavigateToIndex,
   });
+
+  const navigateToTeamIndex = (index: number, skip = false) => {
+    const position = queueIndices.indexOf(index);
+    handleNavigateToIndex(
+      index,
+      skip,
+      teamQueuesEnabled && position >= 0 ? progressUpdate(position) : undefined,
+    );
+  };
+
+  const finishCurrentTeamQueue = () => {
+    if (!teamQueuesEnabled || !session || queueIndices.length === 0) return;
+    const position = queueIndices.length;
+    const completedProgress = {
+      ...(session.teamQueueProgress ?? {}),
+      [teamFilter]: position,
+    };
+    handleNavigateToIndex(session.currentIndex, false, progressUpdate(position));
+
+    const next = nextIncompleteTeam(completedProgress);
+    const teamName = teamFilter === NO_TEAM ? 'No team' : teamFilter.replace(/^team:/, '');
+    if (next) {
+      toast.success(`${teamName} queue complete. Switching to next team.`);
+      selectTeam(next);
+    } else {
+      handleTeamQueueComplete(teamName);
+      toast.success('All team queues complete!');
+    }
+  };
 
   const currentUrl = session?.urls[session.currentIndex];
   const onlineCount = participants.filter((p) => p.isOnline).length;
@@ -657,7 +690,13 @@ export function HostDashboard() {
               currentIndex={session.currentIndex}
               isHost={true}
               isEditMode={isEditMode}
-              onJumpTo={filterLocksNavigation ? undefined : handleJumpTo}
+              onJumpTo={
+                filterLocksNavigation
+                  ? undefined
+                  : teamQueuesEnabled
+                    ? (index) => navigateToTeamIndex(index)
+                    : handleJumpTo
+              }
               teamQueuesEnabled={teamQueuesEnabled}
               teamFilter={teamFilter}
               onTeamFilterChange={selectTeam}
@@ -665,11 +704,14 @@ export function HostDashboard() {
               onDelete={handleDeleteUrl}
               onReorder={handleReorderUrls}
               savedVotes={savedVotesMap}
-              onSetVote={handleSetSavedVote}
+              onSetVote={(index, value) => {
+                handleSetSavedVote(index, value);
+              }}
               onResetVote={handleResetSavedVote}
               onCopyToJira={session.votingEnabled ? handleCopyToJira : undefined}
               storyPointProjects={storyPointProjects}
               scoringEnabled={scoringEnabled}
+              teamQueueProgress={session.teamQueueProgress}
             />
 
             {/* Add URL input */}
@@ -723,7 +765,7 @@ export function HostDashboard() {
                 if (filterLocksNavigation) return;
                 if (teamQueuesEnabled) {
                   const target = step(-1);
-                  if (target !== null) handleNavigateToIndex(target);
+                  if (target !== null) navigateToTeamIndex(target);
                   return;
                 }
                 handleNavigate('prev');
@@ -732,7 +774,7 @@ export function HostDashboard() {
                 if (filterLocksNavigation) return;
                 if (teamQueuesEnabled) {
                   const target = step(1);
-                  if (target !== null) handleNavigateToIndex(target);
+                  if (target !== null) navigateToTeamIndex(target);
                   return;
                 }
                 handleNavigate('next');
@@ -742,19 +784,10 @@ export function HostDashboard() {
                 if (teamQueuesEnabled) {
                   const target = step(1);
                   if (target !== null) {
-                    handleNavigateToIndex(target, true);
+                    navigateToTeamIndex(target, true);
                   } else {
                     handleSetSavedVote(session.currentIndex, 'skipped');
-                    const teamName =
-                      teamFilter === NO_TEAM ? 'No team' : teamFilter.replace(/^team:/, '');
-                    const pendingSaved = { ...savedVotesMap, [session.currentIndex]: 'skipped' };
-                    const next = nextIncompleteTeam(pendingSaved);
-                    if (next) {
-                      toast.success(`${teamName} done! Switching to next team.`);
-                      setTimeout(() => selectTeam(next), 800);
-                    } else {
-                      toast.success('All team queues complete!');
-                    }
+                    finishCurrentTeamQueue();
                   }
                   return;
                 }
@@ -765,6 +798,16 @@ export function HostDashboard() {
                 handleSkip();
               }}
               onComplete={handleComplete}
+              showFinishQueue={teamQueuesEnabled}
+              queueCompleted={
+                teamQueuesEnabled &&
+                queueIndices.length > 0 &&
+                progressPosition(teamFilter) >= queueIndices.length
+              }
+              queueName={teamFilter === NO_TEAM ? 'No team' : teamFilter.replace(/^team:/, '')}
+              queuePosition={queuePosition}
+              queueTotal={queueIndices.length}
+              onFinishQueue={finishCurrentTeamQueue}
               completed={isGroomingComplete}
               completeOnLast={!teamQueuesEnabled}
               disabled={

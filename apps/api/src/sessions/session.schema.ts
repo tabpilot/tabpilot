@@ -66,6 +66,10 @@ export class SessionDoc {
   @Prop({ default: false })
   teamQueuesEnabled: boolean;
 
+  /** Per-team next pending ticket position, keyed by an encoded team filter key. */
+  @Prop({ type: Map, of: Number, default: {} })
+  teamQueueProgress: Map<string, number>;
+
   @Prop({ default: false })
   isLocked: boolean;
 

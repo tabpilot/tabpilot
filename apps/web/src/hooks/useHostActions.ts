@@ -1,8 +1,8 @@
-import type { Session } from '@tabpilot/shared';
+import type { Session, TeamQueueProgressUpdate } from '@tabpilot/shared';
 import { WS_EVENTS } from '@tabpilot/shared';
-import confetti from 'canvas-confetti';
 import { useCallback } from 'react';
 import toast from 'react-hot-toast';
+import { fireCompletionConfetti } from '@/lib/completionConfetti';
 import { isStoryPointConfigured, parseJiraUrl, updateJiraStoryPoints } from '@/lib/jira';
 import { getSocket } from '@/lib/socket';
 
@@ -79,16 +79,21 @@ export function useHostActions({
 
   const handleComplete = useCallback(() => {
     setIsGroomingComplete(true);
-    confetti({
-      particleCount: 160,
-      spread: 80,
-      origin: { y: 0.7 },
-      colors: ['#6366f1', '#8b5cf6', '#06b6d4', '#10b981', '#f59e0b'],
-    });
+    fireCompletionConfetti();
     if (sessionId && hostKey) {
       getSocket().emit(WS_EVENTS.GROOMING_COMPLETE, { sessionId, hostKey });
     }
   }, [sessionId, hostKey, setIsGroomingComplete]);
+
+  const handleTeamQueueComplete = useCallback(
+    (queueName: string) => {
+      fireCompletionConfetti();
+      if (sessionId && hostKey) {
+        getSocket().emit(WS_EVENTS.TEAM_QUEUE_COMPLETED, { sessionId, hostKey, queueName });
+      }
+    },
+    [sessionId, hostKey],
+  );
 
   const handleJumpTo = useCallback(
     (index: number) => {
@@ -100,7 +105,7 @@ export function useHostActions({
   );
 
   const handleNavigateToIndex = useCallback(
-    (index: number, skip = false) => {
+    (index: number, skip = false, teamQueueProgress?: TeamQueueProgressUpdate) => {
       if (!sessionId || !hostKey) return;
       if (session && index < session.currentIndex) setIsGroomingComplete(false);
       getSocket().emit(WS_EVENTS.HOST_NAVIGATE, {
@@ -108,6 +113,7 @@ export function useHostActions({
         hostKey,
         index,
         ...(skip ? { skip: true } : {}),
+        ...(teamQueueProgress ? { teamQueueProgress } : {}),
       });
     },
     [sessionId, hostKey, session, setIsGroomingComplete],
@@ -260,6 +266,7 @@ export function useHostActions({
     handleNavigate,
     handleSkip,
     handleComplete,
+    handleTeamQueueComplete,
     handleJumpTo,
     handleNavigateToIndex,
     handleToggleLock,

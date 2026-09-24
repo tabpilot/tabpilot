@@ -19,9 +19,17 @@ export interface Session {
   votingEnabled: boolean;
   /** When true, each Jira team is groomed as its own queue. */
   teamQueuesEnabled?: boolean;
+  /** Next pending position for each team queue, keyed by its team filter key. */
+  teamQueueProgress?: Record<string, number>;
   isLocked: boolean;
   createdAt: string;
   expiresAt: string;
+}
+
+/** Position of the next pending ticket in a team queue. */
+export interface TeamQueueProgressUpdate {
+  queueKey: string;
+  position: number;
 }
 
 export interface Participant {

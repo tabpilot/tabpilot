@@ -29,6 +29,7 @@ function makeSessionDoc(
     currentIndex: 0,
     state: 'waiting' as const,
     votingEnabled: false,
+    teamQueuesEnabled: false,
     isLocked: false,
     votes: [],
     revealedIndices: [],
@@ -112,6 +113,7 @@ function makeMockSessionsService(): jest.Mocked<SessionsService> {
     joinAsCoHost: jest.fn(),
     updateState: jest.fn(),
     updateCurrentIndex: jest.fn(),
+    setTeamQueueProgress: jest.fn(),
     toSessionDto: jest.fn(),
     create: jest.fn(),
     setLocked: jest.fn(),
@@ -565,6 +567,54 @@ describe('SessionGateway', () => {
 
       expect(sessionsService.updateCurrentIndex).not.toHaveBeenCalled();
       expect(mockServer.emit).not.toHaveBeenCalledWith(WS_EVENTS.NAVIGATE_TO, expect.anything());
+    });
+
+    it('persists and broadcasts team queue progress even when navigation stays on the same ticket', async () => {
+      const client = makeMockSocket();
+      const sessionDoc = makeSessionDoc({ currentIndex: 1, teamQueuesEnabled: true });
+      sessionsService.validateHostKey.mockResolvedValue(true);
+      sessionsService.findById.mockResolvedValue(sessionDoc);
+      sessionsService.setTeamQueueProgress.mockResolvedValue(sessionDoc);
+      sessionsService.toSessionDto.mockReturnValue({
+        ...makeSessionDto(),
+        teamQueueProgress: { 'team:Alpha': 2 },
+      });
+
+      await gateway.handleNavigate(client, {
+        sessionId: 'session-1',
+        hostKey: 'valid',
+        index: 1,
+        teamQueueProgress: { queueKey: 'team:Alpha', position: 2 },
+      });
+
+      expect(sessionsService.setTeamQueueProgress).toHaveBeenCalledWith(
+        'session-1',
+        'team:Alpha',
+        2,
+      );
+      expect(mockServer.emit).toHaveBeenCalledWith(WS_EVENTS.TEAM_QUEUE_PROGRESS_UPDATED, {
+        teamQueueProgress: { 'team:Alpha': 2 },
+      });
+      expect(mockServer.emit).not.toHaveBeenCalledWith(WS_EVENTS.NAVIGATE_TO, expect.anything());
+    });
+
+    it('rejects team queue progress from sessions without team queues enabled', async () => {
+      const client = makeMockSocket();
+      sessionsService.validateHostKey.mockResolvedValue(true);
+      sessionsService.findById.mockResolvedValue(makeSessionDoc({ teamQueuesEnabled: false }));
+
+      await gateway.handleNavigate(client, {
+        sessionId: 'session-1',
+        hostKey: 'valid',
+        direction: 'next',
+        teamQueueProgress: { queueKey: 'team:Alpha', position: 1 },
+      });
+
+      expect(sessionsService.setTeamQueueProgress).not.toHaveBeenCalled();
+      expect(client.emit).toHaveBeenCalledWith(
+        WS_EVENTS.ERROR,
+        expect.objectContaining({ code: 'INVALID_TEAM_QUEUE_PROGRESS' }),
+      );
     });
 
     it('should mark index as skipped in savedVotes when skip is true', async () => {
@@ -1960,6 +2010,22 @@ describe('SessionGateway', () => {
 
       expect(client.to).toHaveBeenCalledWith('session-1');
       expect(client.emit).toHaveBeenCalledWith(WS_EVENTS.GROOMING_COMPLETE, {});
+    });
+
+    it('broadcasts team queue completion only after validating the host', async () => {
+      const client = makeMockSocket();
+      sessionsService.validateHostKey.mockResolvedValue(true);
+
+      await gateway.handleTeamQueueCompleted(client, {
+        sessionId: 'session-1',
+        hostKey: 'valid-key',
+        queueName: 'Alpha',
+      });
+
+      expect(client.to).toHaveBeenCalledWith('session-1');
+      expect(client.emit).toHaveBeenCalledWith(WS_EVENTS.TEAM_QUEUE_COMPLETED, {
+        queueName: 'Alpha',
+      });
     });
 
     it('should not use the global server broadcast (only room minus sender)', async () => {
