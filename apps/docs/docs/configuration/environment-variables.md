@@ -34,6 +34,7 @@ This value is the CORS allowed origin for the API and Socket.io. If it does not 
 | `JIRA_API_TOKEN` | — | No | Jira API token for Basic Auth. Generate one at [id.atlassian.com](https://id.atlassian.com/manage-profile/security/api-tokens) |
 | `JIRA_STORY_POINTS_FIELDS` | — | No | Comma-separated `PROJECT_KEY=field_name` pairs, e.g. `PROJ=customfield_10016,OTHER=customfield_10028`. Maps each project to its story points custom field |
 | `JIRA_EXTRA_FIELDS` | — | No | JSON object mapping project keys to additional Jira fields to include when saving story points (e.g. sprint field). See [Jira Integration](./jira-integration.md) |
+| `JIRA_TEAM_FIELD` | — | No | Jira custom field id for the Team field, e.g. `customfield_10001`. When unset, Tab Pilot discovers the Atlassian Team field and returns its name with each issue |
 
 See [Jira Integration](./jira-integration.md) for the full setup guide.
 

@@ -41,6 +41,8 @@ export interface JiraIssue {
   summary: string;
   status: string;
   issueType: string;
+  /** Display name of the Jira team, when the issue has one. */
+  team?: string | null;
 }
 
 export async function fetchJiraIssue(key: string, baseUrl?: string): Promise<JiraIssue> {

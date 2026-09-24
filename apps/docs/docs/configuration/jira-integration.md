@@ -36,6 +36,19 @@ JIRA_API_TOKEN=ATATT3xFfGF0...
 With just these three variables set, Tab Pilot will:
 - Automatically resolve Jira URLs in the queue to display the issue summary
 - Allow the host to see ticket titles without leaving Tab Pilot
+- Read each issue's team name, when the Jira site has a Team field
+
+## Filtering the queue by team
+
+Issue metadata includes the team name. In the host ticket queue, a **Team** menu lists the teams on the current tickets. Choosing a team shows only that team's Jira issues. **No team** shows Jira issues that have no team. **All teams** shows the full queue.
+
+Tab Pilot finds the Team field by itself (the Atlassian Team custom field, or a field named Team). If that lookup picks the wrong field, set its id explicitly:
+
+```bash
+JIRA_TEAM_FIELD=customfield_10001
+```
+
+Find the id the same way as a story-points field: `GET /rest/api/3/field` and look for the field whose name is Team. The value must be an object with a `name` (or `title`). A field that returns only a team id is ignored.
 
 ## Story Point Sync
 

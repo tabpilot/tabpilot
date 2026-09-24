@@ -18,6 +18,7 @@ describe('JiraService', () => {
 
     service = module.get<JiraService>(JiraService);
     jest.resetAllMocks();
+    delete process.env.JIRA_TEAM_FIELD;
   });
 
   describe('isConfigured', () => {
@@ -202,6 +203,7 @@ describe('JiraService', () => {
           summary: 'Fix the bug',
           status: 'In Progress',
           issueType: 'Bug',
+          team: null,
         });
       });
 
@@ -216,7 +218,152 @@ describe('JiraService', () => {
         expect(issue.summary).toBe('PROJ-456');
         expect(issue.status).toBe('Unknown');
         expect(issue.issueType).toBe('Issue');
+        expect(issue.team).toBeNull();
       });
+    });
+  });
+
+  describe('team name', () => {
+    const teamField = {
+      id: 'customfield_10001',
+      name: 'Team',
+      schema: {
+        custom: 'com.atlassian.jira.plugin.system.customfieldtypes:atlassian-team',
+      },
+    };
+
+    beforeEach(() => {
+      process.env.JIRA_BASE_URL = 'https://example.atlassian.net';
+      process.env.JIRA_USER_EMAIL = 'user@example.com';
+      process.env.JIRA_API_TOKEN = 'token123';
+    });
+
+    afterEach(() => {
+      delete process.env.JIRA_BASE_URL;
+      delete process.env.JIRA_USER_EMAIL;
+      delete process.env.JIRA_API_TOKEN;
+      delete process.env.JIRA_TEAM_FIELD;
+    });
+
+    function mockJira(teamValue: unknown) {
+      global.fetch = jest.fn(async (input: string | URL) => {
+        const url = String(input);
+        if (url.includes('/rest/api/3/field')) {
+          return {
+            status: 200,
+            ok: true,
+            json: async () => [
+              { id: 'customfield_10999', name: 'Team', schema: { custom: 'other:field' } },
+              teamField,
+            ],
+          } as unknown as Response;
+        }
+        return {
+          status: 200,
+          ok: true,
+          json: async () => ({
+            fields: {
+              summary: 'Fix the bug',
+              status: { name: 'Open' },
+              issuetype: { name: 'Story' },
+              customfield_10001: teamValue,
+              customfield_10099: teamValue,
+            },
+          }),
+        } as unknown as Response;
+      }) as typeof fetch;
+    }
+
+    it('discovers the Atlassian team field and returns its name', async () => {
+      mockJira({ id: 'team-1', name: 'Platform', title: 'Platform' });
+
+      const issue = await service.getIssue('PROJ-123');
+
+      expect(issue.team).toBe('Platform');
+      expect(global.fetch).toHaveBeenCalledWith(
+        'https://example.atlassian.net/rest/api/3/issue/PROJ-123?fields=summary,status,issuetype,customfield_10001',
+        expect.any(Object),
+      );
+    });
+
+    it('caches the discovered field id across issue fetches', async () => {
+      mockJira({ name: 'Platform' });
+
+      await service.getIssue('PROJ-1');
+      await service.getIssue('PROJ-2');
+
+      const fieldCalls = (global.fetch as jest.Mock).mock.calls.filter((call) =>
+        String(call[0]).includes('/rest/api/3/field'),
+      );
+      expect(fieldCalls).toHaveLength(1);
+    });
+
+    it('uses JIRA_TEAM_FIELD without calling the field list', async () => {
+      process.env.JIRA_TEAM_FIELD = 'customfield_10099';
+      mockJira({ name: 'Mobile' });
+
+      const issue = await service.getIssue('PROJ-123');
+
+      expect(issue.team).toBe('Mobile');
+      expect(global.fetch).toHaveBeenCalledTimes(1);
+      expect(global.fetch).toHaveBeenCalledWith(
+        expect.stringContaining('fields=summary,status,issuetype,customfield_10099'),
+        expect.any(Object),
+      );
+    });
+
+    it('reads a string team name', async () => {
+      process.env.JIRA_TEAM_FIELD = 'customfield_10001';
+      mockJira('Design');
+      await expect(service.getIssue('PROJ-123')).resolves.toMatchObject({ team: 'Design' });
+    });
+
+    it('ignores a bare team id', async () => {
+      process.env.JIRA_TEAM_FIELD = 'customfield_10001';
+      mockJira('b30dc958-5e4e-4e3a-9d1a-111111111111');
+      await expect(service.getIssue('PROJ-123')).resolves.toMatchObject({ team: null });
+    });
+
+    it('falls back to title when name is missing', async () => {
+      process.env.JIRA_TEAM_FIELD = 'customfield_10001';
+      mockJira({ title: 'Core' });
+      await expect(service.getIssue('PROJ-123')).resolves.toMatchObject({ team: 'Core' });
+    });
+
+    it('still returns the issue when the field list cannot be loaded', async () => {
+      global.fetch = jest.fn(async (input: string | URL) => {
+        const url = String(input);
+        if (url.includes('/rest/api/3/field')) {
+          return { status: 500, ok: false } as Response;
+        }
+        return {
+          status: 200,
+          ok: true,
+          json: async () => ({
+            fields: {
+              summary: 'Fix the bug',
+              status: { name: 'Open' },
+              issuetype: { name: 'Story' },
+            },
+          }),
+        } as unknown as Response;
+      }) as typeof fetch;
+
+      const issue = await service.getIssue('PROJ-123');
+      expect(issue.summary).toBe('Fix the bug');
+      expect(issue.team).toBeNull();
+    });
+
+    it('includes the team on the description fetch', async () => {
+      process.env.JIRA_TEAM_FIELD = 'customfield_10001';
+      mockJira({ name: 'Platform' });
+
+      const issue = await service.getIssueWithDescription('PROJ-123');
+      expect(issue.team).toBe('Platform');
+      expect(global.fetch).toHaveBeenCalledWith(
+        expect.stringContaining('fields=summary,description,status,issuetype,customfield_10001'),
+        expect.any(Object),
+      );
     });
   });
 

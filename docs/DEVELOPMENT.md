@@ -144,6 +144,7 @@ podman compose -f compose.dev.yml down -v
 | `JIRA_API_TOKEN` | | No | Jira API token for authentication. |
 | `JIRA_STORY_POINTS_FIELDS` | | No | Comma-separated `PROJECT_KEY=field_name` pairs for per-project story point field mapping. |
 | `JIRA_EXTRA_FIELDS` | | No | JSON object mapping project keys to extra Jira fields sent alongside story points. |
+| `JIRA_TEAM_FIELD` | | No | Custom field id for the Jira Team field. When unset, the Atlassian Team field is discovered automatically and its name is returned with each issue. |
 | `GOOGLE_APPLICATION_CREDENTIALS` | | No | Path to a GCP service account JSON key file. Enables AI ticket quality scoring via Gemini. |
 | `VERTEX_AI_LOCATION` | `us-central1` | No | Vertex AI region for Gemini API calls. |
 | `GEMINI_MODEL` | `gemini-2.5-flash` | No | Gemini model name for ticket scoring. |

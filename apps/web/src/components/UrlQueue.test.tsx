@@ -3,7 +3,25 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { UrlQueue } from './UrlQueue';
 
-vi.mock('@/hooks/useJiraIssue', () => ({ useJiraIssue: () => ({ data: null, isLoading: false }) }));
+const jiraTeams = vi.hoisted(() => ({
+  byUrl: new Map<string, { team: string | null; isJira: boolean; isLoading: boolean }>(),
+  issue: null as {
+    key: string;
+    summary: string;
+    status: string;
+    issueType: string;
+    team?: string | null;
+  } | null,
+}));
+
+vi.mock('@/hooks/useJiraIssue', () => ({
+  useJiraIssue: (url: string) => ({
+    data: url.includes('atlassian') ? jiraTeams.issue : null,
+    isLoading: false,
+  }),
+  useJiraIssueTeams: (urls: string[]) =>
+    urls.map((url) => jiraTeams.byUrl.get(url) ?? { team: null, isJira: false, isLoading: false }),
+}));
 vi.mock('@/hooks/useUrlTitle', () => ({ useUrlTitle: () => ({ data: null, isLoading: false }) }));
 vi.mock('framer-motion', () => ({
   motion: { div: ({ children }: React.HTMLAttributes<HTMLDivElement>) => <div>{children}</div> },
@@ -20,6 +38,11 @@ const URLS = [
   'https://example.atlassian.net/browse/PROJ-2',
   'https://example.com/current',
 ];
+
+beforeEach(() => {
+  jiraTeams.byUrl = new Map();
+  jiraTeams.issue = null;
+});
 
 describe('UrlQueue — story point controls (host view)', () => {
   const onSetVote = vi.fn();
@@ -133,6 +156,126 @@ describe('UrlQueue — story point controls (host view)', () => {
   it('does not show story point badge for skipped tickets', () => {
     renderQueue({ savedVotes: { 0: 'skipped' } });
     expect(screen.queryByTitle('Story point: skipped')).not.toBeInTheDocument();
+  });
+});
+
+describe('UrlQueue — team filter', () => {
+  const urls = [
+    'https://example.atlassian.net/browse/PROJ-1',
+    'https://example.atlassian.net/browse/PROJ-2',
+    'https://example.atlassian.net/browse/PROJ-3',
+    'https://example.com/notes',
+  ];
+
+  beforeEach(() => {
+    jiraTeams.byUrl = new Map([
+      [urls[0], { team: 'Platform', isJira: true, isLoading: false }],
+      [urls[1], { team: 'Platform', isJira: true, isLoading: false }],
+      [urls[2], { team: null, isJira: true, isLoading: false }],
+      [urls[3], { team: null, isJira: false, isLoading: false }],
+    ]);
+    jiraTeams.issue = null;
+  });
+
+  function renderFiltered(overrides: Partial<React.ComponentProps<typeof UrlQueue>> = {}) {
+    return render(
+      <UrlQueue urls={urls} currentIndex={0} isHost onJumpTo={vi.fn()} {...overrides} />,
+    );
+  }
+
+  it('lists teams and shows the team name on Jira rows', () => {
+    renderFiltered();
+    expect(screen.getByRole('tablist', { name: 'Filter tickets by team' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Platform' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'No team' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'All teams' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByText('PROJ-3')).toBeInTheDocument();
+    expect(screen.getByText('example.com')).toBeInTheDocument();
+  });
+
+  it('shows only tickets for the selected team', async () => {
+    renderFiltered();
+    await userEvent.click(screen.getByRole('tab', { name: 'Platform' }));
+    expect(screen.getByText('PROJ-1')).toBeInTheDocument();
+    expect(screen.getByText('PROJ-2')).toBeInTheDocument();
+    expect(screen.queryByText('PROJ-3')).not.toBeInTheDocument();
+    expect(screen.queryByText('example.com')).not.toBeInTheDocument();
+    expect(screen.getByText('2 shown')).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Platform' })).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('shows Jira tickets that have no team', async () => {
+    renderFiltered();
+    await userEvent.click(screen.getByRole('tab', { name: 'No team' }));
+    expect(screen.queryByText('PROJ-1')).not.toBeInTheDocument();
+    expect(screen.getByText('PROJ-3')).toBeInTheDocument();
+    expect(screen.queryByText('example.com')).not.toBeInTheDocument();
+    expect(screen.getByText('1 shown')).toBeInTheDocument();
+  });
+
+  it('hides the No team tab when every Jira has a team', () => {
+    jiraTeams.byUrl = new Map([
+      [urls[0], { team: 'Platform', isJira: true, isLoading: false }],
+      [urls[1], { team: 'Mobile', isJira: true, isLoading: false }],
+      [urls[2], { team: 'Platform', isJira: true, isLoading: false }],
+      [urls[3], { team: null, isJira: false, isLoading: false }],
+    ]);
+    renderFiltered();
+    expect(screen.getByRole('tab', { name: 'Platform' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Mobile' })).toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: 'No team' })).not.toBeInTheDocument();
+  });
+
+  it('does not treat a loading Jira as having no team', () => {
+    jiraTeams.byUrl = new Map([
+      [urls[0], { team: 'Platform', isJira: true, isLoading: false }],
+      [urls[1], { team: null, isJira: true, isLoading: true }],
+      [urls[2], { team: 'Platform', isJira: true, isLoading: false }],
+      [urls[3], { team: null, isJira: false, isLoading: false }],
+    ]);
+    renderFiltered();
+    expect(screen.queryByRole('tab', { name: 'No team' })).not.toBeInTheDocument();
+  });
+
+  it('moves between team tabs with the arrow keys', async () => {
+    renderFiltered();
+    const allTeams = screen.getByRole('tab', { name: 'All teams' });
+    allTeams.focus();
+    await userEvent.keyboard('{ArrowRight}');
+    expect(screen.getByRole('tab', { name: 'Platform' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByText('2 shown')).toBeInTheDocument();
+    await userEvent.keyboard('{ArrowRight}');
+    expect(screen.getByRole('tab', { name: 'No team' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByText('PROJ-3')).toBeInTheDocument();
+    expect(screen.queryByText('PROJ-1')).not.toBeInTheDocument();
+  });
+
+  it('hides drag handles while a team filter is active', async () => {
+    renderFiltered({ isEditMode: true });
+    expect(screen.getAllByLabelText('Drag to reorder').length).toBe(urls.length);
+    await userEvent.click(screen.getByRole('tab', { name: 'Platform' }));
+    expect(screen.queryAllByLabelText('Drag to reorder')).toHaveLength(0);
+  });
+
+  it('shows the team name on a Jira row', () => {
+    jiraTeams.issue = {
+      key: 'PROJ-1',
+      summary: 'Fix bug',
+      status: 'Open',
+      issueType: 'Bug',
+      team: 'Platform',
+    };
+    renderFiltered();
+    expect(screen.getAllByTitle('Platform').length).toBeGreaterThan(0);
+  });
+
+  it('does not offer a team filter when no ticket has a team', () => {
+    jiraTeams.byUrl = new Map();
+    jiraTeams.issue = null;
+    renderFiltered();
+    expect(
+      screen.queryByRole('tablist', { name: 'Filter tickets by team' }),
+    ).not.toBeInTheDocument();
   });
 });
 

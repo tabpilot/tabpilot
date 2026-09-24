@@ -16,6 +16,8 @@ export interface JiraIssue {
   summary: string;
   status: string;
   issueType: string;
+  /** Display name of the Jira team, or null when the issue has none. */
+  team: string | null;
 }
 
 export interface JiraIssueWithDescription extends JiraIssue {
@@ -34,6 +36,69 @@ function adfToPlainText(node: unknown): string {
   return childText;
 }
 
+/** Atlassian Team and Advanced Roadmaps team custom-field types. */
+const TEAM_FIELD_TYPES = new Set([
+  'com.atlassian.jira.plugin.system.customfieldtypes:atlassian-team',
+  'com.atlassian.teams:rm-teams-custom-field-team',
+]);
+
+/** Field ids are interpolated into the Jira fields query, so keep them to a token. */
+const TEAM_FIELD_ID_RE = /^[A-Za-z][A-Za-z0-9_]*$/;
+
+/** Old team fields sometimes return only a team id. That is not a display name. */
+const TEAM_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+interface JiraFieldDescriptor {
+  id?: unknown;
+  name?: unknown;
+  schema?: { custom?: unknown };
+}
+
+function pickTeamFieldId(body: unknown): string | null {
+  if (!Array.isArray(body)) return null;
+
+  const usable = body.filter((item): item is JiraFieldDescriptor => {
+    if (!item || typeof item !== 'object') return false;
+    const id = (item as JiraFieldDescriptor).id;
+    return typeof id === 'string' && TEAM_FIELD_ID_RE.test(id);
+  });
+
+  const byType = usable.filter((field) => {
+    const custom = field.schema?.custom;
+    return typeof custom === 'string' && TEAM_FIELD_TYPES.has(custom);
+  });
+
+  const named = (fields: JiraFieldDescriptor[]) =>
+    fields.find((field) => field.name === 'Team') ?? fields[0];
+
+  const chosen = byType.length > 0 ? named(byType) : usable.find((field) => field.name === 'Team');
+  return typeof chosen?.id === 'string' ? chosen.id : null;
+}
+
+function readTeamName(value: unknown): string | null {
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed || TEAM_ID_RE.test(trimmed)) return null;
+    return trimmed;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const name = readTeamName(item);
+      if (name) return name;
+    }
+    return null;
+  }
+  if (value && typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    for (const key of ['name', 'title', 'value', 'displayName']) {
+      if (typeof record[key] !== 'string') continue;
+      const name = readTeamName(record[key]);
+      if (name) return name;
+    }
+  }
+  return null;
+}
+
 function isAtlassianHost(urlStr: string): boolean {
   try {
     const { hostname, protocol } = new URL(urlStr);
@@ -48,6 +113,8 @@ function isAtlassianHost(urlStr: string): boolean {
 @Injectable()
 export class JiraService {
   private readonly logger = new Logger(JiraService.name);
+  /** Team custom-field id per Jira origin. Null means the instance has no team field. */
+  private readonly teamFieldIdByBase = new Map<string, string | null>();
 
   private get baseUrl(): string | undefined {
     return process.env.JIRA_BASE_URL?.replace(/\/$/, '');
@@ -171,6 +238,66 @@ export class JiraService {
     }
   }
 
+  /**
+   * Team field id from JIRA_TEAM_FIELD, or discovered from the Jira field list.
+   * Discovery is cached per base URL. Failures omit the team rather than failing the issue fetch.
+   */
+  private async resolveTeamFieldId(base: string, auth: string): Promise<string | null> {
+    const configured = process.env.JIRA_TEAM_FIELD?.trim();
+    if (configured) {
+      if (!TEAM_FIELD_ID_RE.test(configured)) {
+        this.logger.warn('JIRA_TEAM_FIELD is not a valid field id — ignored.');
+      } else {
+        return configured;
+      }
+    }
+
+    const cached = this.teamFieldIdByBase.get(base);
+    if (cached !== undefined) return cached;
+
+    try {
+      const url = this.assertAllowedUrl(`${base}/rest/api/3/field`);
+      const res = await fetch(url, {
+        headers: {
+          Authorization: `Basic ${auth}`,
+          Accept: 'application/json',
+        },
+      });
+      if (!res.ok) {
+        this.logger.warn(
+          `Jira field list returned HTTP ${res.status}; team names will be omitted.`,
+        );
+        this.teamFieldIdByBase.set(base, null);
+        return null;
+      }
+      const id = pickTeamFieldId(await res.json());
+      this.teamFieldIdByBase.set(base, id);
+      return id;
+    } catch (err) {
+      this.logger.warn(`Could not resolve Jira team field: ${err}`);
+      this.teamFieldIdByBase.set(base, null);
+      return null;
+    }
+  }
+
+  private async fieldsQuery(
+    base: string,
+    auth: string,
+    fields: string[],
+  ): Promise<{ query: string; teamFieldId: string | null }> {
+    const teamFieldId = await this.resolveTeamFieldId(base, auth);
+    const all = teamFieldId ? [...fields, teamFieldId] : fields;
+    return { query: all.join(','), teamFieldId };
+  }
+
+  private teamFromFields(
+    fields: Record<string, unknown> | undefined,
+    teamFieldId: string | null,
+  ): string | null {
+    if (!teamFieldId || !fields) return null;
+    return readTeamName(fields[teamFieldId]);
+  }
+
   async getIssue(issueKey: string, providedBaseUrl?: string): Promise<JiraIssue> {
     if (!ISSUE_KEY_RE.test(issueKey)) {
       throw new BadRequestException('Invalid Jira issue key.');
@@ -183,8 +310,13 @@ export class JiraService {
 
     const resolvedBase = this.resolveBaseUrl(providedBaseUrl);
     const auth = Buffer.from(`${this.email}:${this.token}`).toString('base64');
+    const { query, teamFieldId } = await this.fieldsQuery(resolvedBase, auth, [
+      'summary',
+      'status',
+      'issuetype',
+    ]);
     const url = this.assertAllowedUrl(
-      `${resolvedBase}/rest/api/3/issue/${issueKey}?fields=summary,status,issuetype`,
+      `${resolvedBase}/rest/api/3/issue/${issueKey}?fields=${query}`,
     );
 
     let res: Response;
@@ -221,6 +353,7 @@ export class JiraService {
       summary: data.fields?.summary ?? issueKey,
       status: data.fields?.status?.name ?? 'Unknown',
       issueType: data.fields?.issuetype?.name ?? 'Issue',
+      team: this.teamFromFields(data.fields as Record<string, unknown> | undefined, teamFieldId),
     };
   }
 
@@ -239,8 +372,14 @@ export class JiraService {
 
     const resolvedBase = this.resolveBaseUrl(providedBaseUrl);
     const auth = Buffer.from(`${this.email}:${this.token}`).toString('base64');
+    const { query, teamFieldId } = await this.fieldsQuery(resolvedBase, auth, [
+      'summary',
+      'description',
+      'status',
+      'issuetype',
+    ]);
     const url = this.assertAllowedUrl(
-      `${resolvedBase}/rest/api/3/issue/${issueKey}?fields=summary,description,status,issuetype`,
+      `${resolvedBase}/rest/api/3/issue/${issueKey}?fields=${query}`,
     );
 
     let res: Response;
@@ -283,6 +422,7 @@ export class JiraService {
       description: adfToPlainText(data.fields?.description),
       status: data.fields?.status?.name ?? 'Unknown',
       issueType: data.fields?.issuetype?.name ?? 'Issue',
+      team: this.teamFromFields(data.fields as Record<string, unknown> | undefined, teamFieldId),
     };
   }
 

@@ -21,10 +21,10 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import * as Yup from 'yup';
 import { TicketScoreBadge } from '@/components/TicketScoreBadge';
-import { useJiraIssue } from '@/hooks/useJiraIssue';
+import { type QueueTicketTeam, useJiraIssue, useJiraIssueTeams } from '@/hooks/useJiraIssue';
 import { useUrlTitle } from '@/hooks/useUrlTitle';
 import { formatJiraTitle, isStoryPointConfigured, parseJiraUrl } from '@/lib/jira';
 import { cn, formatUrl, getFaviconUrl, safeUrl, truncateUrl } from '@/lib/utils';
@@ -73,7 +73,7 @@ function UrlTitle({ url, isCurrent, isPast, scoringEnabled, isDragOverlay }: Url
         {isLoading && <Loader2 className="h-3 w-3 animate-spin text-zinc-500 flex-shrink-0" />}
         <p
           className={cn(
-            'text-xs font-semibold truncate',
+            'min-w-0 text-xs font-semibold truncate',
             isCurrent && 'text-indigo-300',
             isPast && 'text-zinc-600 line-through',
             !isCurrent && !isPast && 'text-zinc-500 dark:text-zinc-400',
@@ -81,6 +81,14 @@ function UrlTitle({ url, isCurrent, isPast, scoringEnabled, isDragOverlay }: Url
         >
           {title}
         </p>
+        {jiraIssue?.team ? (
+          <span
+            className="max-w-[8rem] flex-shrink-0 truncate rounded-full border border-zinc-300/70 bg-zinc-200/80 px-1.5 py-0.5 text-[10px] font-medium text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800"
+            title={jiraIssue.team}
+          >
+            {jiraIssue.team}
+          </span>
+        ) : null}
         {scoringEnabled && <TicketScoreBadge url={url} />}
       </div>
       <p
@@ -247,6 +255,8 @@ interface RowProps {
   /** Project keys that have story-points configured — used to gate the Jira send button */
   readonly storyPointProjects?: string[];
   readonly scoringEnabled?: boolean;
+  /** Drag reorder. Off while a team filter is hiding part of the queue. */
+  readonly canReorder?: boolean;
 }
 
 function buildRowClassName(
@@ -296,6 +306,7 @@ function UrlRow({
   onCopyToJira,
   storyPointProjects,
   scoringEnabled,
+  canReorder = true,
 }: RowProps) {
   const isCurrent = index === currentIndex;
   const isPast = index < currentIndex;
@@ -311,7 +322,7 @@ function UrlRow({
 
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id,
-    disabled: !isHost || !isEditMode,
+    disabled: !isHost || !isEditMode || !canReorder,
   });
 
   const style = {
@@ -331,7 +342,7 @@ function UrlRow({
     isDragOverlay ?? false,
   );
 
-  const dragHandle = isHost && isEditMode && (
+  const dragHandle = isHost && isEditMode && canReorder && (
     <button
       type="button"
       className={cn(
@@ -520,6 +531,90 @@ function UrlRow({
   );
 }
 
+const ALL_TEAMS = 'all';
+const NO_TEAM = 'none';
+
+interface TeamFilterOption {
+  value: string;
+  label: string;
+}
+
+function TeamFilterTabs({
+  teams,
+  hasUnassigned,
+  value,
+  onChange,
+  shownCount,
+}: {
+  readonly teams: string[];
+  readonly hasUnassigned: boolean;
+  readonly value: string;
+  readonly onChange: (value: string) => void;
+  readonly shownCount: number | null;
+}) {
+  const options: TeamFilterOption[] = [
+    { value: ALL_TEAMS, label: 'All teams' },
+    ...teams.map((team) => ({ value: `team:${team}`, label: team })),
+    ...(hasUnassigned ? [{ value: NO_TEAM, label: 'No team' }] : []),
+  ];
+
+  function onKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
+    const index = options.findIndex((option) => option.value === value);
+    let next = index;
+    if (event.key === 'ArrowRight') next = (index + 1) % options.length;
+    else if (event.key === 'ArrowLeft') next = (index - 1 + options.length) % options.length;
+    else if (event.key === 'Home') next = 0;
+    else if (event.key === 'End') next = options.length - 1;
+    else return;
+    event.preventDefault();
+    onChange(options[next].value);
+    const tabs = event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]');
+    tabs[next]?.focus();
+  }
+
+  return (
+    <div className="mb-1 flex flex-wrap items-center gap-1.5 px-1">
+      <div
+        role="tablist"
+        aria-label="Filter tickets by team"
+        onKeyDown={onKeyDown}
+        className="flex flex-wrap items-center gap-1"
+      >
+        {options.map((option) => {
+          const selected = option.value === value;
+          return (
+            <button
+              key={option.value}
+              type="button"
+              role="tab"
+              aria-selected={selected}
+              tabIndex={selected ? 0 : -1}
+              onClick={() => onChange(option.value)}
+              className={cn(
+                'rounded-full border px-2.5 py-1 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500',
+                selected
+                  ? 'border-indigo-500/40 bg-indigo-500/15 text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-300'
+                  : 'border-zinc-200 text-zinc-500 hover:border-zinc-300 hover:bg-zinc-100 hover:text-zinc-700 dark:border-zinc-800 dark:hover:border-zinc-700 dark:hover:bg-zinc-800/60 dark:hover:text-zinc-200',
+              )}
+            >
+              {option.label}
+            </button>
+          );
+        })}
+      </div>
+      {shownCount !== null && <span className="text-xs text-zinc-500">{shownCount} shown</span>}
+    </div>
+  );
+}
+
+function matchesTeamFilter(ticket: QueueTicketTeam | undefined, filter: string): boolean {
+  if (filter === ALL_TEAMS) return true;
+  if (!ticket?.isJira || ticket.isLoading) return false;
+  if (filter === NO_TEAM) return !ticket.team;
+  const name = filter.startsWith('team:') ? filter.slice('team:'.length) : filter;
+  return ticket.team === name;
+}
+
 // ─── UrlQueue ─────────────────────────────────────────────────────────────────
 
 export interface UrlQueueProps {
@@ -561,10 +656,12 @@ export function UrlQueue({
   scoringEnabled,
 }: UrlQueueProps) {
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [teamFilter, setTeamFilter] = useState(ALL_TEAMS);
   // Optimistic local copies — updated immediately on drop so there's no
   // visual snap-back while we wait for the server round-trip.
   const [localUrls, setLocalUrls] = useState(urls);
   const [localCurrentIndex, setLocalCurrentIndex] = useState(currentIndex);
+  const ticketTeams = useJiraIssueTeams(localUrls);
 
   // Keep in sync when the authoritative props change (server confirms reorder,
   // URL added/removed, navigation, etc.).
@@ -584,13 +681,39 @@ export function UrlQueue({
   // Stable IDs for dnd-kit: use URL + index to handle duplicate URLs
   const items = localUrls.map((url, i) => `${i}:${url}`);
 
+  const teams = useMemo(() => {
+    const names = new Set<string>();
+    for (const ticket of ticketTeams) {
+      if (ticket.team) names.add(ticket.team);
+    }
+    return [...names].sort((a, b) => a.localeCompare(b));
+  }, [ticketTeams]);
+  const hasUnassigned = ticketTeams.some(
+    (ticket) => ticket.isJira && !ticket.isLoading && !ticket.team,
+  );
+  const filtering = teamFilter !== ALL_TEAMS;
+
+  useEffect(() => {
+    if (teamFilter === ALL_TEAMS) return;
+    if (teamFilter === NO_TEAM) {
+      if (!hasUnassigned) setTeamFilter(ALL_TEAMS);
+      return;
+    }
+    const name = teamFilter.startsWith('team:') ? teamFilter.slice('team:'.length) : teamFilter;
+    if (!teams.includes(name)) setTeamFilter(ALL_TEAMS);
+  }, [teamFilter, teams, hasUnassigned]);
+
+  const visibleEntries = localUrls
+    .map((url, index) => ({ url, index, id: items[index] }))
+    .filter((entry) => matchesTeamFilter(ticketTeams[entry.index], teamFilter));
+
   function handleDragStart(event: DragStartEvent) {
     setActiveId(event.active.id as string);
   }
 
   function handleDragEnd(event: DragEndEvent) {
     setActiveId(null);
-    if (!isEditMode) return;
+    if (!isEditMode || filtering) return;
     const { active, over } = event;
     if (!over || active.id === over.id) return;
 
@@ -617,28 +740,41 @@ export function UrlQueue({
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
     >
-      <SortableContext items={items} strategy={verticalListSortingStrategy}>
+      <SortableContext
+        items={visibleEntries.map((entry) => entry.id)}
+        strategy={verticalListSortingStrategy}
+      >
         <div className={cn('flex flex-col gap-1', className)}>
-          {items.map((id, index) => (
+          {teams.length > 0 && (
+            <TeamFilterTabs
+              teams={teams}
+              hasUnassigned={hasUnassigned}
+              value={teamFilter}
+              onChange={setTeamFilter}
+              shownCount={filtering ? visibleEntries.length : null}
+            />
+          )}
+          {visibleEntries.map((entry) => (
             // Key by URL (not index-based id) so React reuses the DOM node
             // when items reorder, preventing the entry animation from replaying.
             <motion.div
-              key={localUrls[index]}
+              key={entry.url}
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.96 }}
               transition={{ duration: 0.18 }}
             >
               <UrlRow
-                id={id}
-                url={localUrls[index]}
-                index={index}
+                id={entry.id}
+                url={entry.url}
+                index={entry.index}
                 currentIndex={localCurrentIndex}
                 isHost={isHost}
                 isEditMode={isEditMode}
+                canReorder={!filtering}
                 onJumpTo={onJumpTo}
                 onDelete={onDelete}
-                savedVote={savedVotes?.[index]}
+                savedVote={savedVotes?.[entry.index]}
                 onSetVote={onSetVote}
                 onResetVote={onResetVote}
                 onCopyToJira={onCopyToJira}
@@ -647,6 +783,9 @@ export function UrlQueue({
               />
             </motion.div>
           ))}
+          {filtering && visibleEntries.length === 0 && (
+            <p className="px-3 py-6 text-center text-xs text-zinc-500">No tickets for this team.</p>
+          )}
         </div>
       </SortableContext>
 

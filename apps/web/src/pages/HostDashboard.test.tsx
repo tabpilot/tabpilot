@@ -29,6 +29,8 @@ vi.mock('@/hooks/useSocket', () => ({
 
 vi.mock('@/hooks/useJiraIssue', () => ({
   useJiraIssue: () => ({ data: null }),
+  useJiraIssueTeams: (urls: string[]) =>
+    urls.map(() => ({ team: null, isJira: false, isLoading: false })),
 }));
 
 vi.mock('@/hooks/useUrlTitle', () => ({

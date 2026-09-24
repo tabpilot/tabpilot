@@ -35,7 +35,7 @@ export class JiraController {
   @ApiOperation({
     summary: 'Fetch a Jira issue by key',
     description:
-      'Proxies to the configured Jira instance. Returns the issue summary, status, and type. ' +
+      'Proxies to the configured Jira instance. Returns the issue summary, status, type, and team. ' +
       'Requires JIRA_USER_EMAIL and JIRA_API_TOKEN. JIRA_BASE_URL is optional — ' +
       'if not set, pass baseUrl as a query param (inferred from the ticket URL).',
   })
@@ -49,6 +49,7 @@ export class JiraController {
         summary: 'Fix login bug',
         status: 'In Progress',
         issueType: 'Bug',
+        team: 'Platform',
       },
     },
   })
