@@ -99,17 +99,6 @@ function readTeamName(value: unknown): string | null {
   return null;
 }
 
-function isAtlassianHost(urlStr: string): boolean {
-  try {
-    const { hostname, protocol } = new URL(urlStr);
-    return (
-      protocol === 'https:' && (hostname === 'atlassian.net' || hostname.endsWith('.atlassian.net'))
-    );
-  } catch {
-    return false;
-  }
-}
-
 @Injectable()
 export class JiraService {
   private readonly logger = new Logger(JiraService.name);
@@ -129,7 +118,7 @@ export class JiraService {
   }
 
   get isConfigured(): boolean {
-    return !!(this.email && this.token);
+    return !!(this.email && this.token && this.baseUrl);
   }
 
   private resolveBaseUrl(provided?: string): string {
@@ -141,19 +130,7 @@ export class JiraService {
       }
       return this.baseUrl;
     }
-    if (provided) {
-      // No JIRA_BASE_URL configured — only *.atlassian.net is permitted as a fallback.
-      // Self-hosted instances must be declared via JIRA_BASE_URL.
-      if (!isAtlassianHost(provided)) {
-        throw new BadRequestException(
-          'No JIRA_BASE_URL is configured. Provide an https://*.atlassian.net URL, or set JIRA_BASE_URL for a self-hosted instance.',
-        );
-      }
-      return provided.replace(/\/$/, '');
-    }
-    throw new ServiceUnavailableException(
-      'Jira base URL not configured. Set JIRA_BASE_URL or provide a baseUrl parameter.',
-    );
+    throw new ServiceUnavailableException('Jira base URL not configured. Set JIRA_BASE_URL.');
   }
 
   private assertAllowedUrl(url: string): string {

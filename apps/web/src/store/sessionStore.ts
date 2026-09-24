@@ -15,6 +15,19 @@ export interface SavedSession {
 }
 
 const SAVED_SESSIONS_KEY = 'tabpilot_saved_sessions';
+// Credentials stay in memory only. Browser storage is readable by any script
+// running on this origin, so a persistent copy would expose session access.
+const participantSecrets = new Map<string, string>();
+
+// Remove credentials written by older versions so they do not remain at rest.
+try {
+  for (let index = localStorage.length - 1; index >= 0; index -= 1) {
+    const key = localStorage.key(index);
+    if (key?.startsWith('tabpilot_participant_secret_')) localStorage.removeItem(key);
+  }
+} catch {
+  // Storage may be unavailable in restricted browser contexts.
+}
 
 function readSavedSessions(): SavedSession[] {
   try {
@@ -202,19 +215,11 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   },
 
   saveParticipantSecret: (sessionId, secret) => {
-    try {
-      localStorage.setItem(`tabpilot_participant_secret_${sessionId}`, secret);
-    } catch {
-      // ignore
-    }
+    participantSecrets.set(sessionId, secret);
   },
 
   loadParticipantSecret: (sessionId) => {
-    try {
-      return localStorage.getItem(`tabpilot_participant_secret_${sessionId}`);
-    } catch {
-      return null;
-    }
+    return participantSecrets.get(sessionId) ?? null;
   },
 
   // ── Saved sessions list ───────────────────────────────────────────────────
@@ -262,7 +267,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       localStorage.removeItem(`tabpilot_host_${sessionId}`);
       localStorage.removeItem(`tabpilot_host_invite_${sessionId}`);
       localStorage.removeItem(`tabpilot_participant_${sessionId}`);
-      localStorage.removeItem(`tabpilot_participant_secret_${sessionId}`);
+      participantSecrets.delete(sessionId);
     } catch {
       // ignore
     }

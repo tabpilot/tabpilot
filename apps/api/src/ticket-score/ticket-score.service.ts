@@ -14,11 +14,119 @@ import type { Model } from 'mongoose';
 import { TicketScoreDoc } from './ticket-score.schema';
 
 function isPrivateAddress(ip: string): boolean {
-  const stripped = ip.replace(/^\[|\]$/g, '');
-  return (
-    /^(10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|127\.|169\.254\.)/.test(stripped) ||
-    /^(::1$|fe80:|fc|fd|::ffff:)/i.test(stripped)
-  );
+  const stripped = ip.startsWith('[') && ip.endsWith(']') ? ip.slice(1, -1) : ip;
+  const family = isIP(stripped);
+  if (family === 4) {
+    const octets = stripped.split('.').map(Number);
+    const [a, b] = octets;
+    return (
+      a === 0 ||
+      a === 10 ||
+      a === 127 ||
+      a >= 224 ||
+      (a === 100 && b >= 64 && b <= 127) ||
+      (a === 169 && b === 254) ||
+      (a === 172 && b >= 16 && b <= 31) ||
+      (a === 192 && b === 168) ||
+      (a === 192 && b === 0) ||
+      (a === 198 && (b === 18 || b === 19))
+    );
+  }
+  if (family === 6) {
+    const normalized = stripped.toLowerCase();
+    return (
+      normalized === '::' ||
+      normalized === '::1' ||
+      normalized.startsWith('fc') ||
+      normalized.startsWith('fd') ||
+      normalized.startsWith('fe8') ||
+      normalized.startsWith('fe9') ||
+      normalized.startsWith('fea') ||
+      normalized.startsWith('feb') ||
+      normalized.startsWith('ff') ||
+      normalized.startsWith('::ffff:')
+    );
+  }
+  return true;
+}
+
+function extractPageText(html: string): { title: string | null; body: string } {
+  let title: string | null = null;
+  let text = '';
+  let index = 0;
+  let skipTag: 'script' | 'style' | null = null;
+
+  while (index < html.length) {
+    if (html[index] !== '<') {
+      if (!skipTag) text += html[index];
+      index += 1;
+      continue;
+    }
+
+    let end = index + 1;
+    let quote = '';
+    while (end < html.length) {
+      const char = html[end];
+      if (quote) {
+        if (char === quote) quote = '';
+      } else if (char === '"' || char === "'") {
+        quote = char;
+      } else if (char === '>') {
+        break;
+      }
+      end += 1;
+    }
+    if (end === html.length) {
+      if (!skipTag) text += html.slice(index);
+      break;
+    }
+
+    const tag = html
+      .slice(index + 1, end)
+      .trim()
+      .toLowerCase();
+    const closing = tag.startsWith('/');
+    const nameStart = closing ? 1 : 0;
+    let nameEnd = nameStart;
+    while (
+      nameEnd < tag.length &&
+      ((tag[nameEnd] >= 'a' && tag[nameEnd] <= 'z') || (tag[nameEnd] >= '0' && tag[nameEnd] <= '9'))
+    )
+      nameEnd += 1;
+    const name = tag.slice(nameStart, nameEnd);
+
+    if (!skipTag && (name === 'script' || name === 'style') && !closing) skipTag = name;
+    else if (skipTag && closing && name === skipTag) skipTag = null;
+    else if (!skipTag && name === 'title' && !closing) {
+      let close = end + 1;
+      while (close < html.length && html[close] !== '<') close += 1;
+      title = html.slice(end + 1, close).trim() || null;
+    }
+    if (
+      !skipTag &&
+      !closing &&
+      (name === 'p' ||
+        name === 'div' ||
+        name === 'br' ||
+        name === 'li' ||
+        name === 'h1' ||
+        name === 'h2')
+    )
+      text += ' ';
+    index = end + 1;
+  }
+  return {
+    title,
+    body: text
+      .replaceAll('&nbsp;', ' ')
+      .replaceAll('&amp;', '&')
+      .replaceAll('&lt;', '<')
+      .replaceAll('&gt;', '>')
+      .replaceAll('&quot;', ' ')
+      .replaceAll('&#39;', ' ')
+      .replaceAll(/\s+/g, ' ')
+      .trim(),
+  };
 }
 
 const SCORING_PROMPT = `You are a Jira ticket quality assessor for engineering grooming sessions.
@@ -143,7 +251,7 @@ export class TicketScoreService {
     await this.scoreModel.deleteOne({ issueKey: `url:${url}` }).exec();
   }
 
-  private async assertSafeUrl(raw: string): Promise<void> {
+  private async assertSafeUrl(raw: string): Promise<URL> {
     let parsed: URL;
     try {
       parsed = new URL(raw);
@@ -156,13 +264,14 @@ export class TicketScoreService {
     }
 
     const hostname = parsed.hostname;
-    const stripped = hostname.replace(/^\[|\]$/g, '');
+    const stripped =
+      hostname.startsWith('[') && hostname.endsWith(']') ? hostname.slice(1, -1) : hostname;
 
     if (isIP(stripped) !== 0) {
       if (isPrivateAddress(hostname)) {
         throw new UnprocessableEntityException('URL resolves to a private address.');
       }
-      return;
+      return parsed;
     }
 
     let addresses: { address: string }[];
@@ -172,19 +281,24 @@ export class TicketScoreService {
       throw new UnprocessableEntityException('URL is not crawlable or timed out.');
     }
 
+    if (addresses.length === 0) {
+      throw new UnprocessableEntityException('URL does not resolve to a public address.');
+    }
+
     for (const { address } of addresses) {
       if (isPrivateAddress(address)) {
         throw new UnprocessableEntityException('URL resolves to a private address.');
       }
     }
+    return parsed;
   }
 
   async fetchUrlContent(url: string): Promise<{ title: string; body: string }> {
-    await this.assertSafeUrl(url);
+    const safeUrl = await this.assertSafeUrl(url);
 
     let response: Response;
     try {
-      response = await fetch(url, {
+      response = await fetch(safeUrl, {
         signal: AbortSignal.timeout(10_000),
         redirect: 'error',
         headers: { 'User-Agent': 'TabPilot/1.0 (+https://github.com/gautamkrishnar/tabpilot)' },
@@ -202,20 +316,8 @@ export class TicketScoreService {
       throw new UnprocessableEntityException('URL does not return HTML or plain-text content.');
     }
 
-    const html = await response.text();
-
-    const titleMatch = /<title[^>]*>([^<]+)<\/title>/i.exec(html);
-    const title = titleMatch ? titleMatch[1].trim() : url;
-
-    const body = html
-      .replace(/<script[\s\S]*?<\/script>/gi, '')
-      .replace(/<style[\s\S]*?<\/style>/gi, '')
-      .replace(/<[^>]+>/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim()
-      .slice(0, 8_000);
-
-    return { title, body };
+    const { title, body } = extractPageText(await response.text());
+    return { title: title ?? url, body: body.slice(0, 8_000) };
   }
 
   async scoreByUrl(url: string): Promise<TicketScore> {
@@ -250,24 +352,25 @@ export class TicketScoreService {
       if (start !== -1 && end > start) text = text.slice(start + 1, end).trim();
     }
 
+    let parsed: TicketScore;
     try {
-      const parsed = JSON.parse(text) as TicketScore;
-      if (typeof parsed.overall !== 'number' || !parsed.dimensions) {
-        throw new Error('Missing required fields');
-      }
-
-      await this.scoreModel.create({
-        issueKey: cacheKey,
-        overall: parsed.overall,
-        dimensions: parsed.dimensions,
-        scoredAt: new Date(),
-      });
-
-      return parsed;
+      parsed = JSON.parse(text) as TicketScore;
     } catch {
       this.logger.error(`Failed to parse Gemini response for URL: ${text}`);
       throw new ServiceUnavailableException('Gemini returned an unparseable response.');
     }
+    if (typeof parsed.overall !== 'number' || !parsed.dimensions) {
+      this.logger.error(`Gemini response is missing required fields: ${text}`);
+      throw new ServiceUnavailableException('Gemini returned an unparseable response.');
+    }
+
+    await this.scoreModel.create({
+      issueKey: cacheKey,
+      overall: parsed.overall,
+      dimensions: parsed.dimensions,
+      scoredAt: new Date(),
+    });
+    return parsed;
   }
 
   async scoreTicket(key: string, summary: string, description: string): Promise<TicketScore> {
@@ -306,23 +409,24 @@ export class TicketScoreService {
       if (start !== -1 && end > start) text = text.slice(start + 1, end).trim();
     }
 
+    let parsed: TicketScore;
     try {
-      const parsed = JSON.parse(text) as TicketScore;
-      if (typeof parsed.overall !== 'number' || !parsed.dimensions) {
-        throw new Error('Missing required fields');
-      }
-
-      await this.scoreModel.create({
-        issueKey,
-        overall: parsed.overall,
-        dimensions: parsed.dimensions,
-        scoredAt: new Date(),
-      });
-
-      return parsed;
+      parsed = JSON.parse(text) as TicketScore;
     } catch {
       this.logger.error(`Failed to parse Gemini response: ${text}`);
       throw new ServiceUnavailableException('Gemini returned an unparseable response.');
     }
+    if (typeof parsed.overall !== 'number' || !parsed.dimensions) {
+      this.logger.error(`Gemini response is missing required fields: ${text}`);
+      throw new ServiceUnavailableException('Gemini returned an unparseable response.');
+    }
+
+    await this.scoreModel.create({
+      issueKey,
+      overall: parsed.overall,
+      dimensions: parsed.dimensions,
+      scoredAt: new Date(),
+    });
+    return parsed;
   }
 }

@@ -63,11 +63,13 @@ export class SessionsService {
   }
 
   async findById(sessionId: string): Promise<SessionDocument | null> {
-    return this.sessionModel.findOne({ sessionId }).exec();
+    if (typeof sessionId !== 'string') return null;
+    return this.sessionModel.findOne({ sessionId: { $eq: sessionId } }).exec();
   }
 
   async findByJoinCode(code: string): Promise<SessionDocument | null> {
-    return this.sessionModel.findOne({ joinCode: code.toUpperCase() }).exec();
+    if (typeof code !== 'string') return null;
+    return this.sessionModel.findOne({ joinCode: { $eq: code.toUpperCase() } }).exec();
   }
 
   async validateHostKey(sessionId: string, hostKey: string): Promise<boolean> {
