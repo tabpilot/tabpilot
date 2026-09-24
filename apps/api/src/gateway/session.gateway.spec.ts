@@ -3,10 +3,12 @@ import { Test, type TestingModule } from '@nestjs/testing';
 import type { Participant, Session } from '@tabpilot/shared';
 import { WS_EVENTS } from '@tabpilot/shared';
 import type { Socket } from 'socket.io';
+import { JiraService } from '../jira/jira.service';
 import type { ParticipantDoc, ParticipantDocument } from '../participants/participant.schema';
 import { ParticipantsService } from '../participants/participants.service';
 import type { SessionDoc, SessionDocument } from '../sessions/session.schema';
 import { SessionsService } from '../sessions/sessions.service';
+import { TicketScoreService } from '../ticket-score/ticket-score.service';
 import { SessionGateway } from './session.gateway';
 
 // ---------------------------------------------------------------------------
@@ -159,6 +161,14 @@ describe('SessionGateway', () => {
         SessionGateway,
         { provide: SessionsService, useValue: sessionsService },
         { provide: ParticipantsService, useValue: participantsService },
+        {
+          provide: TicketScoreService,
+          useValue: { isConfigured: false, getCached: jest.fn(), getCachedByUrl: jest.fn() },
+        },
+        {
+          provide: JiraService,
+          useValue: { getIssueWithDescription: jest.fn() },
+        },
       ],
     }).compile();
 

@@ -1,6 +1,5 @@
 import type { TicketScore } from '@tabpilot/shared';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useRef } from 'react';
 import apiClient from '@/lib/api';
 import { parseJiraUrl } from '@/lib/jira';
 
@@ -50,47 +49,5 @@ export function useCachedTicketScore(url: string): TicketScore | undefined {
   return qc.getQueryData<TicketScore>(queryKey);
 }
 
-const PREFETCH_INTERVAL_MS = 800;
-
-/**
- * Prefetch scores for all URLs in the session.
- * Tickets already scored in the API's MongoDB cache return instantly (no Gemini call).
- * New tickets are staggered to avoid Gemini rate limits.
- * Results land in React Query cache; TicketScoreBadge reads from cache without fetching.
- */
-export function usePrefetchTicketScores(urls: string[]) {
-  const qc = useQueryClient();
-  const prefetchedRef = useRef(new Set<string>());
-
-  useEffect(() => {
-    const pending: Array<() => void> = [];
-
-    for (const url of urls) {
-      const info = parseJiraUrl(url);
-      const cacheKey = info ? info.key : url;
-      if (!cacheKey || prefetchedRef.current.has(cacheKey)) continue;
-      prefetchedRef.current.add(cacheKey);
-
-      if (info) {
-        pending.push(() =>
-          qc.prefetchQuery({
-            queryKey: ['ticket-score', info.key],
-            queryFn: () => fetchTicketScore(info.key, info.baseUrl),
-            staleTime: Infinity,
-          }),
-        );
-      } else {
-        pending.push(() =>
-          qc.prefetchQuery({
-            queryKey: ['ticket-score', 'url', url],
-            queryFn: () => fetchTicketScoreByUrl(url),
-            staleTime: Infinity,
-          }),
-        );
-      }
-    }
-
-    const timers = pending.map((fn, i) => setTimeout(fn, i * PREFETCH_INTERVAL_MS));
-    return () => timers.forEach(clearTimeout);
-  }, [urls, qc]);
-}
+/** No-op: scores are pushed via TICKET_SCORE_UPDATE WebSocket event into React Query cache. */
+export function usePrefetchTicketScores(_urls: string[]) {}

@@ -84,40 +84,13 @@ describe('useTicketScore', () => {
 });
 
 describe('usePrefetchTicketScores', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    vi.useFakeTimers();
-  });
+  beforeEach(() => vi.clearAllMocks());
 
-  afterEach(() => vi.useRealTimers());
-
-  it('prefetches scores for valid Jira URLs (staggered)', async () => {
-    mockParseJiraUrl
-      .mockReturnValueOnce({ key: 'PROJ-1', baseUrl: 'https://myorg.atlassian.net' })
-      .mockReturnValueOnce(null);
-    mockGet.mockResolvedValue({ data: { overall: 70, dimensions: {} } });
-
-    const urls = ['https://myorg.atlassian.net/browse/PROJ-1', 'https://not-jira.com'];
-    renderHook(() => usePrefetchTicketScores(urls), { wrapper: createWrapper() });
-
-    await vi.runAllTimersAsync();
-    expect(mockGet).toHaveBeenCalledWith('/ticket-score/PROJ-1', expect.anything());
-    expect(mockGet).toHaveBeenCalledWith('/ticket-score/url', {
-      params: { url: 'https://not-jira.com' },
+  it('is a no-op — scores arrive via TICKET_SCORE_UPDATE WebSocket event', () => {
+    const { result } = renderHook(() => usePrefetchTicketScores(['https://example.com']), {
+      wrapper: createWrapper(),
     });
-  });
-
-  it('does not prefetch the same Jira key twice', async () => {
-    mockParseJiraUrl.mockReturnValue({ key: 'PROJ-1', baseUrl: 'https://myorg.atlassian.net' });
-    mockGet.mockResolvedValue({ data: { overall: 70, dimensions: {} } });
-
-    const urls = [
-      'https://myorg.atlassian.net/browse/PROJ-1',
-      'https://myorg.atlassian.net/browse/PROJ-1',
-    ];
-    renderHook(() => usePrefetchTicketScores(urls), { wrapper: createWrapper() });
-
-    await vi.runAllTimersAsync();
-    expect(mockGet).toHaveBeenCalledTimes(1);
+    expect(result.current).toBeUndefined();
+    expect(mockGet).not.toHaveBeenCalled();
   });
 });
