@@ -216,9 +216,10 @@ describe('saveParticipantId() / loadParticipantId()', () => {
 });
 
 describe('saveParticipantSecret() / loadParticipantSecret()', () => {
-  it('persists secret under the correct localStorage key', () => {
+  it('keeps the secret in memory without writing it to localStorage', () => {
     useSessionStore.getState().saveParticipantSecret('session-abc', 'my-secret');
-    expect(localStorage.getItem('tabpilot_participant_secret_session-abc')).toBe('my-secret');
+    expect(localStorage.getItem('tabpilot_participant_secret_session-abc')).toBeNull();
+    expect(useSessionStore.getState().loadParticipantSecret('session-abc')).toBe('my-secret');
   });
 
   it('loadParticipantSecret returns the stored secret', () => {
@@ -251,7 +252,7 @@ describe('participantSecret state', () => {
 });
 
 describe('removeSavedSession() clears participant secret', () => {
-  it('removes the secret key from localStorage', () => {
+  it('clears the in-memory secret', () => {
     const session = {
       id: 'sess-1',
       name: 'Test',

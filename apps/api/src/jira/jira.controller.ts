@@ -36,8 +36,7 @@ export class JiraController {
     summary: 'Fetch a Jira issue by key',
     description:
       'Proxies to the configured Jira instance. Returns the issue summary, status, type, and team. ' +
-      'Requires JIRA_USER_EMAIL and JIRA_API_TOKEN. JIRA_BASE_URL is optional — ' +
-      'if not set, pass baseUrl as a query param (inferred from the ticket URL).',
+      'Requires JIRA_USER_EMAIL, JIRA_API_TOKEN, and JIRA_BASE_URL. The server only sends credentials to this configured host.',
   })
   @ApiParam({ name: 'key', example: 'CONNCERT-2771', description: 'Jira issue key' })
   @ApiResponse({
