@@ -6,11 +6,13 @@ import type {
   ParticipantUpdatedPayload,
   SavedVotesUpdatedPayload,
   SessionStatePayload,
+  TicketScoreUpdatePayload,
   VotesRevealedPayload,
   VoteUpdatePayload,
   WsErrorPayload,
 } from '@tabpilot/shared';
 import { WS_EVENTS } from '@tabpilot/shared';
+import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import { useNavigate } from 'react-router-dom';
@@ -35,6 +37,7 @@ export function useSocket({
   onGroomingComplete,
 }: UseSocketOptions) {
   const [isConnected, setIsConnected] = useState(false);
+  const queryClient = useQueryClient();
   const socketRef = useRef<Socket | null>(null);
   // Keyed by sessionId so navigating between sessions re-joins correctly,
   // but StrictMode's intermediate cleanup doesn't cause a double join.
@@ -98,6 +101,14 @@ export function useSocket({
       setParticipants(payload.participants);
       if (payload.hasVoted) setVotedParticipantIds(payload.hasVoted);
       if (payload.savedVotes) setSavedVotesMap(payload.savedVotes);
+      if (payload.scores) {
+        for (const [key, score] of Object.entries(payload.scores)) {
+          const queryKey = key.startsWith('url:')
+            ? ['ticket-score', 'url', key.slice(4)]
+            : ['ticket-score', key];
+          queryClient.setQueryData(queryKey, score);
+        }
+      }
     };
 
     const handleParticipantJoined = (payload: ParticipantJoinedPayload) => {
@@ -188,6 +199,13 @@ export function useSocket({
       setSavedVotesMap(payload.savedVotes);
     };
 
+    const handleTicketScoreUpdate = ({ key, score }: TicketScoreUpdatePayload) => {
+      const queryKey = key.startsWith('url:')
+        ? ['ticket-score', 'url', key.slice(4)]
+        : ['ticket-score', key];
+      queryClient.setQueryData(queryKey, score);
+    };
+
     const handleError = (payload: WsErrorPayload) => {
       toast.error(payload.message || 'Something went wrong', {
         duration: 5000,
@@ -207,6 +225,7 @@ export function useSocket({
     socket.on(WS_EVENTS.VOTE_UPDATE, handleVoteUpdate);
     socket.on(WS_EVENTS.VOTES_REVEALED, handleVotesRevealed);
     socket.on(WS_EVENTS.SAVED_VOTES_UPDATED, handleSavedVotesUpdated);
+    socket.on(WS_EVENTS.TICKET_SCORE_UPDATE, handleTicketScoreUpdate);
     socket.on(WS_EVENTS.SESSION_ENDED, handleSessionEnded);
     socket.on(WS_EVENTS.GROOMING_COMPLETE, handleGroomingComplete);
     socket.on(WS_EVENTS.ERROR, handleError);
@@ -228,6 +247,7 @@ export function useSocket({
       socket.off(WS_EVENTS.VOTE_UPDATE, handleVoteUpdate);
       socket.off(WS_EVENTS.VOTES_REVEALED, handleVotesRevealed);
       socket.off(WS_EVENTS.SAVED_VOTES_UPDATED, handleSavedVotesUpdated);
+      socket.off(WS_EVENTS.TICKET_SCORE_UPDATE, handleTicketScoreUpdate);
       socket.off(WS_EVENTS.SESSION_ENDED, handleSessionEnded);
       socket.off(WS_EVENTS.GROOMING_COMPLETE, handleGroomingComplete);
       socket.off(WS_EVENTS.KICKED, handleKicked);
@@ -251,6 +271,7 @@ export function useSocket({
     setSavedVotesMap,
     reset,
     navigate,
+    queryClient,
   ]);
 
   // Note: we intentionally do NOT call disconnectSocket() on unmount.

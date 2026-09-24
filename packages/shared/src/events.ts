@@ -114,6 +114,8 @@ export interface SessionStatePayload {
   hasVoted?: string[];
   /** Average vote per URL index for past tickets */
   savedVotes?: Record<number, string>;
+  /** Cached ticket scores keyed by Jira key or "url:<url>" — populated on join from MongoDB */
+  scores?: Record<string, import('./types').TicketScore>;
 }
 
 export interface ParticipantJoinedPayload {
@@ -207,6 +209,12 @@ export interface SavedVotesUpdatedPayload {
   savedVotes: Record<number, string>;
 }
 
+export interface TicketScoreUpdatePayload {
+  /** Jira issue key (e.g. "PROJ-123") or "url:<raw-url>" for non-Jira tickets */
+  key: string;
+  score: import('./types').TicketScore;
+}
+
 // ─── Event name constants ─────────────────────────────────────────────────────
 
 export const WS_EVENTS = {
@@ -248,5 +256,6 @@ export const WS_EVENTS = {
   VOTE_UPDATE: 'vote_update',
   VOTES_REVEALED: 'votes_revealed',
   SAVED_VOTES_UPDATED: 'saved_votes_updated',
+  TICKET_SCORE_UPDATE: 'ticket_score_update',
   ERROR: 'error',
 } as const;

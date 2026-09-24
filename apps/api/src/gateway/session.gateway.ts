@@ -27,6 +27,7 @@ import {
   type SavedVotesUpdatedPayload,
   type SessionStartedPayload,
   type SessionStatePayload,
+  type TicketScoreUpdatePayload,
   type UpdateHostProfilePayload,
   type VotesRevealedPayload,
   type VoteUpdatePayload,
@@ -34,8 +35,10 @@ import {
   type WsErrorPayload,
 } from '@tabpilot/shared';
 import type { Server, Socket } from 'socket.io';
+import { JiraService } from '../jira/jira.service';
 import { ParticipantsService } from '../participants/participants.service';
 import { SessionsService } from '../sessions/sessions.service';
+import { TicketScoreService } from '../ticket-score/ticket-score.service';
 import {
   HostActionDto,
   HostAddUrlDto,
@@ -76,10 +79,118 @@ export class SessionGateway implements OnGatewayConnection, OnGatewayDisconnect 
    */
   private readonly savedVotes = new Map<string, Map<number, string>>();
 
+  /** Tracks which URL keys have been dispatched for scoring per session to avoid duplicate Gemini calls. */
+  private readonly scoringDispatched = new Map<string, Set<string>>();
+
   constructor(
     private readonly sessionsService: SessionsService,
     private readonly participantsService: ParticipantsService,
+    private readonly ticketScoreService: TicketScoreService,
+    private readonly jiraService: JiraService,
   ) {}
+
+  private static parseJiraFromUrl(url: string): { key: string; baseUrl: string } | null {
+    try {
+      const parsed = new URL(url);
+      const match = /\/browse\/([A-Z]+-\d+)/i.exec(parsed.pathname);
+      if (!match) return null;
+      return { key: match[1].toUpperCase(), baseUrl: parsed.origin };
+    } catch {
+      return null;
+    }
+  }
+
+  private async scoreUrlWithRetry(url: string, maxRetries = 3) {
+    const jira = SessionGateway.parseJiraFromUrl(url);
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        if (jira) {
+          const cached = await this.ticketScoreService.getCached(jira.key);
+          if (cached) return { key: jira.key, score: cached };
+          const issue = await this.jiraService.getIssueWithDescription(jira.key, jira.baseUrl);
+          const score = await this.ticketScoreService.scoreTicket(
+            jira.key,
+            issue.summary,
+            issue.description,
+          );
+          return { key: jira.key, score };
+        }
+        const cached = await this.ticketScoreService.getCachedByUrl(url);
+        if (cached) return { key: `url:${url}`, score: cached };
+        const score = await this.ticketScoreService.scoreByUrl(url);
+        return { key: `url:${url}`, score };
+      } catch (err) {
+        const status =
+          (err as { status?: number })?.status ??
+          (err as { response?: { status?: number } })?.response?.status;
+        if (status === 429 && attempt < maxRetries) {
+          await new Promise((resolve) => setTimeout(resolve, (attempt + 1) * 2000));
+          continue;
+        }
+        return null;
+      }
+    }
+    return null;
+  }
+
+  private async fetchCachedScores(
+    urls: string[],
+  ): Promise<Record<string, import('@tabpilot/shared').TicketScore>> {
+    if (!this.ticketScoreService.isConfigured) return {};
+    const entries = await Promise.all(
+      urls.map(async (url) => {
+        const jira = SessionGateway.parseJiraFromUrl(url);
+        const cached = jira
+          ? await this.ticketScoreService.getCached(jira.key)
+          : await this.ticketScoreService.getCachedByUrl(url);
+        if (!cached) return null;
+        const key = jira ? jira.key : `url:${url}`;
+        return [key, cached] as const;
+      }),
+    );
+    return Object.fromEntries(
+      entries.filter((e): e is [string, import('@tabpilot/shared').TicketScore] => e !== null),
+    );
+  }
+
+  private scoreUrlsInBackground(sessionId: string, urls: string[]): void {
+    if (!this.ticketScoreService.isConfigured) return;
+
+    const dispatched = this.scoringDispatched.get(sessionId) ?? new Set<string>();
+    this.scoringDispatched.set(sessionId, dispatched);
+
+    const pending = urls.filter((url) => {
+      const jira = SessionGateway.parseJiraFromUrl(url);
+      const key = jira ? jira.key : `url:${url}`;
+      if (dispatched.has(key)) return false;
+      dispatched.add(key);
+      return true;
+    });
+
+    if (pending.length === 0) return;
+
+    const CONCURRENCY = 4;
+    let active = 0;
+    let index = 0;
+
+    const next = () => {
+      while (active < CONCURRENCY && index < pending.length) {
+        const url = pending[index++];
+        active++;
+        void this.scoreUrlWithRetry(url).then((result) => {
+          active--;
+          if (result) {
+            this.server
+              .to(sessionId)
+              .emit(WS_EVENTS.TICKET_SCORE_UPDATE, result satisfies TicketScoreUpdatePayload);
+          }
+          next();
+        });
+      }
+    };
+
+    next();
+  }
 
   /**
    * Compute the average of numeric votes. Non-numeric values (?, ☕) are ignored.
@@ -376,13 +487,17 @@ export class SessionGateway implements OnGatewayConnection, OnGatewayDisconnect 
     this.seedInMemoryFromDoc(sessionId, sessionDoc);
 
     const participants = await this.participantsService.findBySession(sessionId);
+    const scores = await this.fetchCachedScores(sessionDoc.urls);
     const sessionStatePayload: SessionStatePayload = {
       session: this.sessionsService.toSessionDto(sessionDoc),
       participants,
       hasVoted: Array.from(this.getVotesForIndex(sessionId, sessionDoc.currentIndex).keys()),
       savedVotes: this.savedVotesRecord(sessionId),
+      ...(Object.keys(scores).length > 0 ? { scores } : {}),
     };
     client.emit(WS_EVENTS.SESSION_STATE, sessionStatePayload);
+
+    this.scoreUrlsInBackground(sessionId, sessionDoc.urls);
 
     if (!isHost && participantId && resolvedParticipantDoc) {
       if (wasOffline) {
@@ -581,6 +696,7 @@ export class SessionGateway implements OnGatewayConnection, OnGatewayDisconnect 
     this.votes.delete(sessionId);
     this.revealed.delete(sessionId);
     this.savedVotes.delete(sessionId);
+    this.scoringDispatched.delete(sessionId);
     this.server.to(sessionId).emit(WS_EVENTS.SESSION_ENDED, {});
   }
 
@@ -629,6 +745,7 @@ export class SessionGateway implements OnGatewayConnection, OnGatewayDisconnect 
       participants: participantDtos,
     };
     this.server.to(sessionId).emit(WS_EVENTS.SESSION_STATE, stateUpdate);
+    this.scoreUrlsInBackground(sessionId, [url]);
   }
 
   @SubscribeMessage(WS_EVENTS.HOST_TOGGLE_LOCK)

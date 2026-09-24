@@ -12,5 +12,6 @@ import { TicketScoreService } from './ticket-score.service';
   ],
   controllers: [TicketScoreController],
   providers: [TicketScoreService],
+  exports: [TicketScoreService],
 })
 export class TicketScoreModule {}

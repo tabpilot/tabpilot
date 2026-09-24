@@ -62,6 +62,8 @@ export class TicketScoreController {
   @ApiResponse({ status: 503, description: 'Scoring or Jira not configured.' })
   async scoreTicket(@Param('key') key: string, @Query('baseUrl') baseUrl?: string) {
     const upperKey = key.toUpperCase();
+    const cached = await this.ticketScoreService.getCached(upperKey);
+    if (cached) return cached;
     const issue = await this.jiraService.getIssueWithDescription(upperKey, baseUrl);
     return this.ticketScoreService.scoreTicket(upperKey, issue.summary, issue.description);
   }

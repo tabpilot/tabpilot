@@ -127,6 +127,14 @@ export class TicketScoreService {
     return doc ? this.toTicketScore(doc) : null;
   }
 
+  async getCachedByUrl(url: string): Promise<TicketScore | null> {
+    const doc = await this.scoreModel
+      .findOne({ issueKey: `url:${url}` })
+      .lean()
+      .exec();
+    return doc ? this.toTicketScore(doc) : null;
+  }
+
   async clearCache(key: string): Promise<void> {
     await this.scoreModel.deleteOne({ issueKey: key.toUpperCase() }).exec();
   }
