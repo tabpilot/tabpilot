@@ -37,9 +37,11 @@ import { useJiraStatus } from '@/hooks/useJiraStatus';
 import { useNotificationPrefs } from '@/hooks/useJoinNotifications';
 import { useSocket } from '@/hooks/useSocket';
 import { useStoryPointOverride } from '@/hooks/useStoryPointOverride';
+import { useTeamQueues } from '@/hooks/useTeamQueues';
 import { usePrefetchTicketScores } from '@/hooks/useTicketScore';
 import { useTicketScoreStatus } from '@/hooks/useTicketScoreStatus';
 import { isStoryPointConfigured, parseJiraUrl, updateJiraStoryPoints } from '@/lib/jira';
+import { NO_TEAM } from '@/lib/teamQueue';
 import { cn, getFaviconUrl, safeUrl, truncateUrl } from '@/lib/utils';
 import { useSessionStore } from '@/store/sessionStore';
 
@@ -314,8 +316,10 @@ export function HostDashboard() {
     handleSkip,
     handleComplete,
     handleJumpTo,
+    handleNavigateToIndex,
     handleToggleLock,
     handleToggleVoting,
+    handleToggleTeamQueues,
     handleKickParticipant,
     handleDeleteUrl,
     handleReorderUrls,
@@ -347,6 +351,22 @@ export function HostDashboard() {
       setIsGroomingComplete(false);
     }
   }, [isGroomingComplete, session]);
+
+  const teamQueuesEnabled = !!session?.teamQueuesEnabled;
+  const {
+    teamFilter,
+    selectTeam,
+    filterLocksNavigation,
+    queueIndices,
+    queuePosition,
+    step,
+    nextIncompleteTeam,
+  } = useTeamQueues({
+    urls: session?.urls ?? [],
+    currentIndex: session?.currentIndex ?? 0,
+    enabled: teamQueuesEnabled,
+    onJumpToIndex: handleNavigateToIndex,
+  });
 
   const currentUrl = session?.urls[session.currentIndex];
   const onlineCount = participants.filter((p) => p.isOnline).length;
@@ -534,7 +554,7 @@ export function HostDashboard() {
         {/* Center content — full width on mobile */}
         <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
           {/* Current URL display */}
-          {currentUrl && session.state === 'active' && (
+          {currentUrl && session.state === 'active' && !filterLocksNavigation && (
             <div className="flex-shrink-0 px-6 pt-5 pb-4 border-b border-zinc-200 dark:border-zinc-800">
               <div className="flex items-center gap-4 p-4 rounded-xl bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800">
                 <img
@@ -637,7 +657,11 @@ export function HostDashboard() {
               currentIndex={session.currentIndex}
               isHost={true}
               isEditMode={isEditMode}
-              onJumpTo={handleJumpTo}
+              onJumpTo={filterLocksNavigation ? undefined : handleJumpTo}
+              teamQueuesEnabled={teamQueuesEnabled}
+              teamFilter={teamFilter}
+              onTeamFilterChange={selectTeam}
+              highlightCurrent={!filterLocksNavigation}
               onDelete={handleDeleteUrl}
               onReorder={handleReorderUrls}
               savedVotes={savedVotesMap}
@@ -680,18 +704,75 @@ export function HostDashboard() {
           </div>
 
           {/* Navigation controls */}
+          {filterLocksNavigation && (
+            <p className="px-4 pt-3 text-xs text-zinc-500">
+              Choose All teams to move through the queue.
+            </p>
+          )}
           {session.state === 'active' && (
             <NavigationControls
               currentIndex={
-                isEditMode ? (frozenCurrentIndex ?? session.currentIndex) : session.currentIndex
+                teamQueuesEnabled
+                  ? Math.max(queuePosition, 0)
+                  : isEditMode
+                    ? (frozenCurrentIndex ?? session.currentIndex)
+                    : session.currentIndex
               }
-              total={session.urls.length}
-              onPrevious={() => handleNavigate('prev')}
-              onNext={() => handleNavigate('next')}
-              onSkip={handleSkip}
+              total={teamQueuesEnabled ? queueIndices.length : session.urls.length}
+              onPrevious={() => {
+                if (filterLocksNavigation) return;
+                if (teamQueuesEnabled) {
+                  const target = step(-1);
+                  if (target !== null) handleNavigateToIndex(target);
+                  return;
+                }
+                handleNavigate('prev');
+              }}
+              onNext={() => {
+                if (filterLocksNavigation) return;
+                if (teamQueuesEnabled) {
+                  const target = step(1);
+                  if (target !== null) handleNavigateToIndex(target);
+                  return;
+                }
+                handleNavigate('next');
+              }}
+              onSkip={() => {
+                if (filterLocksNavigation) return;
+                if (teamQueuesEnabled) {
+                  const target = step(1);
+                  if (target !== null) {
+                    handleNavigateToIndex(target, true);
+                  } else {
+                    handleSetSavedVote(session.currentIndex, 'skipped');
+                    const teamName =
+                      teamFilter === NO_TEAM ? 'No team' : teamFilter.replace(/^team:/, '');
+                    const pendingSaved = { ...savedVotesMap, [session.currentIndex]: 'skipped' };
+                    const next = nextIncompleteTeam(pendingSaved);
+                    if (next) {
+                      toast.success(`${teamName} done! Switching to next team.`);
+                      setTimeout(() => selectTeam(next), 800);
+                    } else {
+                      toast.success('All team queues complete!');
+                    }
+                  }
+                  return;
+                }
+                if (session.currentIndex === session.urls.length - 1) {
+                  handleSetSavedVote(session.currentIndex, 'skipped');
+                  return;
+                }
+                handleSkip();
+              }}
               onComplete={handleComplete}
               completed={isGroomingComplete}
-              disabled={!isConnected || isEditMode}
+              completeOnLast={!teamQueuesEnabled}
+              disabled={
+                !isConnected ||
+                isEditMode ||
+                filterLocksNavigation ||
+                (teamQueuesEnabled && (queueIndices.length === 0 || queuePosition < 0))
+              }
             />
           )}
         </main>
@@ -925,6 +1006,29 @@ export function HostDashboard() {
                     aria-label="Toggle voting"
                   >
                     {session.votingEnabled ? (
+                      <ToggleRight className="h-8 w-8 text-indigo-400" />
+                    ) : (
+                      <ToggleLeft className="h-8 w-8 text-zinc-600" />
+                    )}
+                  </button>
+                </div>
+
+                <div className="flex items-center justify-between gap-4">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
+                      Team queues
+                    </p>
+                    <p className="text-xs text-zinc-500">
+                      Groom each team's tickets on their own, including tickets with no team
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleToggleTeamQueues}
+                    className="flex-shrink-0"
+                    aria-label="Toggle team queues"
+                  >
+                    {session.teamQueuesEnabled ? (
                       <ToggleRight className="h-8 w-8 text-indigo-400" />
                     ) : (
                       <ToggleLeft className="h-8 w-8 text-zinc-600" />

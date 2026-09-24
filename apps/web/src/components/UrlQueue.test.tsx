@@ -213,6 +213,39 @@ describe('UrlQueue — team filter', () => {
     expect(screen.getByText('1 shown')).toBeInTheDocument();
   });
 
+  it('grooms one team at a time and keeps a No team queue', async () => {
+    jiraTeams.byUrl = new Map([
+      [urls[0], { team: 'Platform', isJira: true, isLoading: false }],
+      [urls[1], { team: 'Mobile', isJira: true, isLoading: false }],
+      [urls[2], { team: 'Platform', isJira: true, isLoading: false }],
+      [urls[3], { team: null, isJira: false, isLoading: false }],
+    ]);
+    const onTeamFilterChange = vi.fn();
+    renderFiltered({
+      teamQueuesEnabled: true,
+      teamFilter: 'team:Platform',
+      onTeamFilterChange,
+    });
+    expect(screen.queryByRole('tab', { name: 'All teams' })).not.toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'No team' })).toBeInTheDocument();
+    expect(screen.getByText('PROJ-1')).toBeInTheDocument();
+    expect(screen.queryByText('PROJ-2')).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('tab', { name: 'No team' }));
+    expect(onTeamFilterChange).toHaveBeenCalledWith('none');
+  });
+
+  it('shows an empty No team queue when team queues are on and every Jira has a team', async () => {
+    jiraTeams.byUrl = new Map([
+      [urls[0], { team: 'Platform', isJira: true, isLoading: false }],
+      [urls[1], { team: 'Platform', isJira: true, isLoading: false }],
+      [urls[2], { team: 'Platform', isJira: true, isLoading: false }],
+      [urls[3], { team: null, isJira: false, isLoading: false }],
+    ]);
+    renderFiltered({ teamQueuesEnabled: true, teamFilter: 'none' });
+    expect(screen.getByText('No Jira tickets without a team.')).toBeInTheDocument();
+    expect(screen.queryByText('PROJ-1')).not.toBeInTheDocument();
+  });
+
   it('hides the No team tab when every Jira has a team', () => {
     jiraTeams.byUrl = new Map([
       [urls[0], { team: 'Platform', isJira: true, isLoading: false }],
@@ -345,5 +378,131 @@ describe('UrlQueue — mark-done badge click (host view)', () => {
   it('shows pre-done styling on a future ticket marked as skipped', () => {
     renderMarkDone({ savedVotes: { 2: 'skipped' } });
     expect(screen.getAllByLabelText('Skipped').length).toBeGreaterThan(0);
+  });
+});
+
+describe('UrlQueue — skipped current ticket badge', () => {
+  const onResetVote = vi.fn();
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  // currentIndex=1, so index 1 is the current ticket
+  function renderCurrent(overrides: Partial<React.ComponentProps<typeof UrlQueue>> = {}) {
+    return render(
+      <UrlQueue
+        urls={['https://a.com', 'https://b.com', 'https://c.com']}
+        currentIndex={1}
+        isHost
+        onResetVote={onResetVote}
+        {...overrides}
+      />,
+    );
+  }
+
+  it('shows "Current" badge on the current ticket by default', () => {
+    renderCurrent();
+    expect(screen.getByText('Current')).toBeInTheDocument();
+    expect(screen.queryByText('Skipped')).not.toBeInTheDocument();
+  });
+
+  it('shows "Skipped" badge instead of "Current" when savedVote is skipped on current ticket', () => {
+    renderCurrent({ savedVotes: { 1: 'skipped' } });
+    expect(screen.queryByText('Current')).not.toBeInTheDocument();
+    expect(screen.getByText('Skipped')).toBeInTheDocument();
+  });
+
+  it('renders the Un-skip button for host when current ticket is skipped', () => {
+    renderCurrent({ savedVotes: { 1: 'skipped' } });
+    expect(screen.getByLabelText('Un-skip ticket')).toBeInTheDocument();
+  });
+
+  it('calls onResetVote with current index when Un-skip button is clicked', async () => {
+    renderCurrent({ savedVotes: { 1: 'skipped' } });
+    await userEvent.click(screen.getByLabelText('Un-skip ticket'));
+    expect(onResetVote).toHaveBeenCalledWith(1);
+  });
+
+  it('does not render Un-skip button when current ticket is not skipped', () => {
+    renderCurrent();
+    expect(screen.queryByLabelText('Un-skip ticket')).not.toBeInTheDocument();
+  });
+
+  it('does not render Un-skip button for non-host view', () => {
+    renderCurrent({ isHost: false, savedVotes: { 1: 'skipped' } });
+    expect(screen.queryByLabelText('Un-skip ticket')).not.toBeInTheDocument();
+  });
+});
+
+describe('UrlQueue — team completion indicator', () => {
+  const urls = [
+    'https://example.atlassian.net/browse/PROJ-1',
+    'https://example.atlassian.net/browse/PROJ-2',
+    'https://example.atlassian.net/browse/PROJ-3',
+  ];
+
+  beforeEach(() => {
+    jiraTeams.byUrl = new Map([
+      [urls[0], { team: 'Alpha', isJira: true, isLoading: false }],
+      [urls[1], { team: 'Alpha', isJira: true, isLoading: false }],
+      [urls[2], { team: 'Beta', isJira: true, isLoading: false }],
+    ]);
+    jiraTeams.issue = null;
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('does not show completion checkmark when team is incomplete', () => {
+    render(
+      <UrlQueue
+        urls={urls}
+        currentIndex={0}
+        isHost
+        teamQueuesEnabled
+        teamFilter="team:Alpha"
+        onTeamFilterChange={vi.fn()}
+      />,
+    );
+    // Alpha tab selected — no checkmark on Beta (no savedVotes at all)
+    const betaTab = screen.getByRole('tab', { name: 'Beta' });
+    expect(betaTab.querySelector('svg')).toBeNull();
+  });
+
+  it('shows completion checkmark on a team tab when all its tickets are past', () => {
+    // currentIndex=2 means PROJ-1 (index 0) and PROJ-2 (index 1) are past for Alpha
+    render(
+      <UrlQueue
+        urls={urls}
+        currentIndex={2}
+        isHost
+        teamQueuesEnabled
+        teamFilter="team:Beta"
+        onTeamFilterChange={vi.fn()}
+        savedVotes={{}}
+      />,
+    );
+    // Alpha (indices 0,1) are both < currentIndex (2) → complete
+    const alphaTab = screen.getByRole('tab', { name: 'Alpha' });
+    expect(alphaTab.querySelector('svg')).not.toBeNull();
+  });
+
+  it('shows completion checkmark when all team tickets have savedVotes', () => {
+    render(
+      <UrlQueue
+        urls={urls}
+        currentIndex={0}
+        isHost
+        teamQueuesEnabled
+        teamFilter="team:Alpha"
+        onTeamFilterChange={vi.fn()}
+        savedVotes={{ 2: 'skipped' }}
+      />,
+    );
+    // Beta has only index 2, which has savedVotes → complete
+    const betaTab = screen.getByRole('tab', { name: 'Beta' });
+    expect(betaTab.querySelector('svg')).not.toBeNull();
   });
 });

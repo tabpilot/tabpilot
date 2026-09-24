@@ -114,6 +114,7 @@ function makeMockSessionsService(): jest.Mocked<SessionsService> {
     create: jest.fn(),
     setLocked: jest.fn(),
     setVotingEnabled: jest.fn(),
+    setTeamQueuesEnabled: jest.fn(),
     addUrl: jest.fn(),
     removeUrl: jest.fn(),
     reorderUrls: jest.fn(),
@@ -899,6 +900,48 @@ describe('SessionGateway', () => {
       });
 
       expect(mockServer.emit).not.toHaveBeenCalled();
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // handleToggleTeamQueues()
+  // -------------------------------------------------------------------------
+  describe('handleToggleTeamQueues()', () => {
+    it('should broadcast updated session_state after enabling team queues', async () => {
+      const client = makeMockSocket();
+      const updatedDoc = makeSessionDoc({ teamQueuesEnabled: true });
+      sessionsService.validateHostKey.mockResolvedValue(true);
+      sessionsService.setTeamQueuesEnabled.mockResolvedValue(updatedDoc);
+      sessionsService.toSessionDto.mockReturnValue(makeSessionDto({ teamQueuesEnabled: true }));
+      participantsService.findBySession.mockResolvedValue([]);
+
+      await gateway.handleToggleTeamQueues(client, {
+        sessionId: 'session-1',
+        hostKey: 'valid',
+        teamQueuesEnabled: true,
+      });
+
+      expect(sessionsService.setTeamQueuesEnabled).toHaveBeenCalledWith('session-1', true);
+      expect(mockServer.emit).toHaveBeenCalledWith(
+        WS_EVENTS.SESSION_STATE,
+        expect.objectContaining({ session: expect.objectContaining({ teamQueuesEnabled: true }) }),
+      );
+    });
+
+    it('should emit error if host key is invalid', async () => {
+      const client = makeMockSocket();
+      sessionsService.validateHostKey.mockResolvedValue(false);
+
+      await gateway.handleToggleTeamQueues(client, {
+        sessionId: 'session-1',
+        hostKey: 'wrong',
+        teamQueuesEnabled: true,
+      });
+
+      expect(client.emit).toHaveBeenCalledWith(
+        WS_EVENTS.ERROR,
+        expect.objectContaining({ code: 'UNAUTHORIZED' }),
+      );
     });
   });
 

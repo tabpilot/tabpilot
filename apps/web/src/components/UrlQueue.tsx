@@ -12,6 +12,7 @@ import { CSS } from '@dnd-kit/utilities';
 import { motion } from 'framer-motion';
 import {
   Check,
+  CheckCircle2,
   ChevronsRight,
   ExternalLink,
   GripVertical,
@@ -21,12 +22,13 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as Yup from 'yup';
 import { TicketScoreBadge } from '@/components/TicketScoreBadge';
-import { type QueueTicketTeam, useJiraIssue, useJiraIssueTeams } from '@/hooks/useJiraIssue';
+import { useJiraIssue, useJiraIssueTeams } from '@/hooks/useJiraIssue';
 import { useUrlTitle } from '@/hooks/useUrlTitle';
 import { formatJiraTitle, isStoryPointConfigured, parseJiraUrl } from '@/lib/jira';
+import { ALL_TEAMS, matchesTeamFilter, NO_TEAM } from '@/lib/teamQueue';
 import { cn, formatUrl, getFaviconUrl, safeUrl, truncateUrl } from '@/lib/utils';
 
 // ─── Story point validation ───────────────────────────────────────────────────
@@ -257,6 +259,8 @@ interface RowProps {
   readonly scoringEnabled?: boolean;
   /** Drag reorder. Off while a team filter is hiding part of the queue. */
   readonly canReorder?: boolean;
+  /** When false, no row is highlighted as the currently-groomed ticket. */
+  readonly highlightCurrent?: boolean;
 }
 
 function buildRowClassName(
@@ -307,8 +311,9 @@ function UrlRow({
   storyPointProjects,
   scoringEnabled,
   canReorder = true,
+  highlightCurrent = true,
 }: RowProps) {
-  const isCurrent = index === currentIndex;
+  const isCurrent = highlightCurrent && index === currentIndex;
   const isPast = index < currentIndex;
   const isFuture = index > currentIndex;
   const isSkipped = isPast && savedVote === 'skipped';
@@ -456,11 +461,34 @@ function UrlRow({
         </>
       )}
 
-      {/* Current badge — hidden in edit mode */}
+      {/* Current badge — hidden in edit mode; shows "Skipped" + reset when marked done in-place */}
       {isCurrent && !isEditMode && (
-        <span className="flex-shrink-0 text-xs font-semibold px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">
-          Current
-        </span>
+        <div className="flex items-center gap-1 flex-shrink-0">
+          <span
+            className={cn(
+              'text-xs font-semibold px-2 py-0.5 rounded-full border',
+              savedVote === 'skipped'
+                ? 'bg-amber-500/15 text-amber-400 border-amber-500/30'
+                : 'bg-indigo-500/20 text-indigo-400 border-indigo-500/30',
+            )}
+          >
+            {savedVote === 'skipped' ? 'Skipped' : 'Current'}
+          </span>
+          {savedVote === 'skipped' && isHost && onResetVote && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onResetVote(index);
+              }}
+              className="p-0.5 rounded text-zinc-500 hover:text-red-400 hover:bg-red-400/10 opacity-0 group-hover:opacity-100 transition-all"
+              aria-label="Un-skip ticket"
+              title="Un-skip ticket"
+            >
+              <X className="h-3 w-3" />
+            </button>
+          )}
+        </div>
       )}
 
       {/* Saved story point badge for past tickets (host: editable + reset + copy-to-Jira) */}
@@ -531,9 +559,6 @@ function UrlRow({
   );
 }
 
-const ALL_TEAMS = 'all';
-const NO_TEAM = 'none';
-
 interface TeamFilterOption {
   value: string;
   label: string;
@@ -542,21 +567,30 @@ interface TeamFilterOption {
 function TeamFilterTabs({
   teams,
   hasUnassigned,
+  queueMode,
   value,
   onChange,
   shownCount,
+  completedTeams,
 }: {
   readonly teams: string[];
   readonly hasUnassigned: boolean;
+  readonly queueMode: boolean;
   readonly value: string;
   readonly onChange: (value: string) => void;
   readonly shownCount: number | null;
+  readonly completedTeams?: Set<string>;
 }) {
-  const options: TeamFilterOption[] = [
-    { value: ALL_TEAMS, label: 'All teams' },
-    ...teams.map((team) => ({ value: `team:${team}`, label: team })),
-    ...(hasUnassigned ? [{ value: NO_TEAM, label: 'No team' }] : []),
-  ];
+  const options: TeamFilterOption[] = queueMode
+    ? [
+        ...teams.map((team) => ({ value: `team:${team}`, label: team })),
+        { value: NO_TEAM, label: 'No team' },
+      ]
+    : [
+        { value: ALL_TEAMS, label: 'All teams' },
+        ...teams.map((team) => ({ value: `team:${team}`, label: team })),
+        ...(hasUnassigned ? [{ value: NO_TEAM, label: 'No team' }] : []),
+      ];
 
   function onKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
     const index = options.findIndex((option) => option.value === value);
@@ -582,6 +616,7 @@ function TeamFilterTabs({
       >
         {options.map((option) => {
           const selected = option.value === value;
+          const done = queueMode && completedTeams?.has(option.value);
           return (
             <button
               key={option.value}
@@ -591,12 +626,15 @@ function TeamFilterTabs({
               tabIndex={selected ? 0 : -1}
               onClick={() => onChange(option.value)}
               className={cn(
-                'rounded-full border px-2.5 py-1 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500',
+                'flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500',
                 selected
                   ? 'border-indigo-500/40 bg-indigo-500/15 text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-300'
-                  : 'border-zinc-200 text-zinc-500 hover:border-zinc-300 hover:bg-zinc-100 hover:text-zinc-700 dark:border-zinc-800 dark:hover:border-zinc-700 dark:hover:bg-zinc-800/60 dark:hover:text-zinc-200',
+                  : done
+                    ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                    : 'border-zinc-200 text-zinc-500 hover:border-zinc-300 hover:bg-zinc-100 hover:text-zinc-700 dark:border-zinc-800 dark:hover:border-zinc-700 dark:hover:bg-zinc-800/60 dark:hover:text-zinc-200',
               )}
             >
+              {done && !selected && <CheckCircle2 className="h-3 w-3 flex-shrink-0" />}
               {option.label}
             </button>
           );
@@ -605,14 +643,6 @@ function TeamFilterTabs({
       {shownCount !== null && <span className="text-xs text-zinc-500">{shownCount} shown</span>}
     </div>
   );
-}
-
-function matchesTeamFilter(ticket: QueueTicketTeam | undefined, filter: string): boolean {
-  if (filter === ALL_TEAMS) return true;
-  if (!ticket?.isJira || ticket.isLoading) return false;
-  if (filter === NO_TEAM) return !ticket.team;
-  const name = filter.startsWith('team:') ? filter.slice('team:'.length) : filter;
-  return ticket.team === name;
 }
 
 // ─── UrlQueue ─────────────────────────────────────────────────────────────────
@@ -637,6 +667,13 @@ export interface UrlQueueProps {
   /** Project keys with story-points configured — gates the Jira send button per row */
   readonly storyPointProjects?: string[];
   readonly scoringEnabled?: boolean;
+  /** Groom one team at a time. Hides All teams and always offers a No team queue. */
+  readonly teamQueuesEnabled?: boolean;
+  /** Controlled team tab. Omit to keep the selection inside the queue. */
+  readonly teamFilter?: string;
+  readonly onTeamFilterChange?: (value: string) => void;
+  /** When false, no row is marked as the ticket currently being groomed. */
+  readonly highlightCurrent?: boolean;
 }
 
 export function UrlQueue({
@@ -654,9 +691,21 @@ export function UrlQueue({
   onCopyToJira,
   storyPointProjects,
   scoringEnabled,
+  teamQueuesEnabled = false,
+  teamFilter: teamFilterProp,
+  onTeamFilterChange,
+  highlightCurrent = true,
 }: UrlQueueProps) {
   const [activeId, setActiveId] = useState<string | null>(null);
-  const [teamFilter, setTeamFilter] = useState(ALL_TEAMS);
+  const [uncontrolledFilter, setUncontrolledFilter] = useState(ALL_TEAMS);
+  const teamFilter = teamFilterProp ?? uncontrolledFilter;
+  const setTeamFilter = useCallback(
+    (value: string) => {
+      onTeamFilterChange?.(value);
+      if (teamFilterProp === undefined) setUncontrolledFilter(value);
+    },
+    [onTeamFilterChange, teamFilterProp],
+  );
   // Optimistic local copies — updated immediately on drop so there's no
   // visual snap-back while we wait for the server round-trip.
   const [localUrls, setLocalUrls] = useState(urls);
@@ -693,15 +742,43 @@ export function UrlQueue({
   );
   const filtering = teamFilter !== ALL_TEAMS;
 
+  const completedTeams = useMemo(() => {
+    if (!teamQueuesEnabled || !savedVotes) return undefined;
+    const done = new Set<string>();
+    const allKeys = [...teams.map((t) => `team:${t}`), ...(hasUnassigned ? [NO_TEAM] : [])];
+    for (const key of allKeys) {
+      const indices = localUrls
+        .map((_, i) => i)
+        .filter((i) => matchesTeamFilter(ticketTeams[i], key));
+      // A team is done when all its tickets are either already past or explicitly saved
+      const allDone =
+        indices.length > 0 &&
+        indices.every((i) => i < localCurrentIndex || savedVotes[i] !== undefined);
+      if (allDone) done.add(key);
+    }
+    return done;
+  }, [
+    teamQueuesEnabled,
+    savedVotes,
+    teams,
+    hasUnassigned,
+    localUrls,
+    ticketTeams,
+    localCurrentIndex,
+  ]);
+
   useEffect(() => {
     if (teamFilter === ALL_TEAMS) return;
     if (teamFilter === NO_TEAM) {
-      if (!hasUnassigned) setTeamFilter(ALL_TEAMS);
+      if (!teamQueuesEnabled && !hasUnassigned) setTeamFilter(ALL_TEAMS);
       return;
     }
     const name = teamFilter.startsWith('team:') ? teamFilter.slice('team:'.length) : teamFilter;
-    if (!teams.includes(name)) setTeamFilter(ALL_TEAMS);
-  }, [teamFilter, teams, hasUnassigned]);
+    if (!teams.includes(name)) {
+      const fallback = teamQueuesEnabled ? (teams[0] ? `team:${teams[0]}` : NO_TEAM) : ALL_TEAMS;
+      setTeamFilter(fallback);
+    }
+  }, [teamFilter, teams, hasUnassigned, teamQueuesEnabled, setTeamFilter]);
 
   const visibleEntries = localUrls
     .map((url, index) => ({ url, index, id: items[index] }))
@@ -745,13 +822,17 @@ export function UrlQueue({
         strategy={verticalListSortingStrategy}
       >
         <div className={cn('flex flex-col gap-1', className)}>
-          {teams.length > 0 && (
+          {(teamQueuesEnabled
+            ? teams.length > 0 || hasUnassigned || ticketTeams.some((ticket) => ticket.isJira)
+            : teams.length > 0) && (
             <TeamFilterTabs
               teams={teams}
               hasUnassigned={hasUnassigned}
+              queueMode={teamQueuesEnabled}
               value={teamFilter}
               onChange={setTeamFilter}
               shownCount={filtering ? visibleEntries.length : null}
+              completedTeams={completedTeams}
             />
           )}
           {visibleEntries.map((entry) => (
@@ -780,11 +861,16 @@ export function UrlQueue({
                 onCopyToJira={onCopyToJira}
                 storyPointProjects={storyPointProjects}
                 scoringEnabled={scoringEnabled}
+                highlightCurrent={highlightCurrent}
               />
             </motion.div>
           ))}
           {filtering && visibleEntries.length === 0 && (
-            <p className="px-3 py-6 text-center text-xs text-zinc-500">No tickets for this team.</p>
+            <p className="px-3 py-6 text-center text-xs text-zinc-500">
+              {teamFilter === NO_TEAM
+                ? 'No Jira tickets without a team.'
+                : 'No tickets for this team.'}
+            </p>
           )}
         </div>
       </SortableContext>

@@ -160,6 +160,7 @@ export class SessionsService {
       currentIndex: obj.currentIndex,
       state: obj.state,
       votingEnabled: obj.votingEnabled,
+      teamQueuesEnabled: obj.teamQueuesEnabled ?? false,
       isLocked: obj.isLocked ?? false,
       createdAt: obj.createdAt ? obj.createdAt.toISOString() : new Date().toISOString(),
       expiresAt: obj.expiresAt.toISOString(),
@@ -187,6 +188,15 @@ export class SessionsService {
   ): Promise<SessionDocument | null> {
     return this.sessionModel
       .findOneAndUpdate({ sessionId }, { votingEnabled }, { returnDocument: 'after' })
+      .exec();
+  }
+
+  async setTeamQueuesEnabled(
+    sessionId: string,
+    teamQueuesEnabled: boolean,
+  ): Promise<SessionDocument | null> {
+    return this.sessionModel
+      .findOneAndUpdate({ sessionId }, { teamQueuesEnabled }, { returnDocument: 'after' })
       .exec();
   }
 

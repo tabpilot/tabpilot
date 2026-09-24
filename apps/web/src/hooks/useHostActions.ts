@@ -93,9 +93,24 @@ export function useHostActions({
   const handleJumpTo = useCallback(
     (index: number) => {
       if (!sessionId || !hostKey) return;
+      if (session && index < session.currentIndex) setIsGroomingComplete(false);
       getSocket().emit(WS_EVENTS.HOST_NAVIGATE, { sessionId, hostKey, index });
     },
-    [sessionId, hostKey],
+    [sessionId, hostKey, session, setIsGroomingComplete],
+  );
+
+  const handleNavigateToIndex = useCallback(
+    (index: number, skip = false) => {
+      if (!sessionId || !hostKey) return;
+      if (session && index < session.currentIndex) setIsGroomingComplete(false);
+      getSocket().emit(WS_EVENTS.HOST_NAVIGATE, {
+        sessionId,
+        hostKey,
+        index,
+        ...(skip ? { skip: true } : {}),
+      });
+    },
+    [sessionId, hostKey, session, setIsGroomingComplete],
   );
 
   const handleToggleLock = useCallback(() => {
@@ -114,6 +129,16 @@ export function useHostActions({
     getSocket().emit(WS_EVENTS.HOST_TOGGLE_VOTING, { sessionId, hostKey, votingEnabled });
     toast(votingEnabled ? 'Voting enabled.' : 'Voting disabled.', {
       icon: votingEnabled ? '✅' : '🚫',
+      duration: 3000,
+    });
+  }, [sessionId, hostKey, session]);
+
+  const handleToggleTeamQueues = useCallback(() => {
+    if (!sessionId || !hostKey || !session) return;
+    const teamQueuesEnabled = !session.teamQueuesEnabled;
+    getSocket().emit(WS_EVENTS.HOST_TOGGLE_TEAM_QUEUES, { sessionId, hostKey, teamQueuesEnabled });
+    toast(teamQueuesEnabled ? 'Team queues enabled.' : 'Team queues disabled.', {
+      icon: teamQueuesEnabled ? '👥' : '🚫',
       duration: 3000,
     });
   }, [sessionId, hostKey, session]);
@@ -236,8 +261,10 @@ export function useHostActions({
     handleSkip,
     handleComplete,
     handleJumpTo,
+    handleNavigateToIndex,
     handleToggleLock,
     handleToggleVoting,
+    handleToggleTeamQueues,
     handleKickParticipant,
     handleDeleteUrl,
     handleReorderUrls,

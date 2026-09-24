@@ -74,9 +74,14 @@ describe('NavigationControls', () => {
     expect(screen.getByRole('button', { name: /skip/i })).toBeInTheDocument();
   });
 
-  it('does not show Skip button on the last item', () => {
+  it('shows Skip button on the last item (allows marking single/last ticket as done)', () => {
     render(<NavigationControls {...baseProps} currentIndex={2} total={3} />);
-    expect(screen.queryByRole('button', { name: /skip/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /skip/i })).toBeInTheDocument();
+  });
+
+  it('disables Skip button on the last item when already completed', () => {
+    render(<NavigationControls {...baseProps} currentIndex={2} total={3} completed={true} />);
+    expect(screen.getByRole('button', { name: /skip/i })).toBeDisabled();
   });
 
   it('calls onSkip when Skip is clicked', async () => {

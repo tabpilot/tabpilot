@@ -13,6 +13,9 @@ import { HostDashboard } from './HostDashboard';
 
 const mockEmit = vi.fn();
 const mockNavigate = vi.fn();
+const jiraQueue = vi.hoisted(() => ({
+  byUrl: new Map<string, { team: string | null; isJira: boolean; isLoading: boolean }>(),
+}));
 
 vi.mock('@/lib/socket', () => ({
   getSocket: () => ({ emit: mockEmit }),
@@ -30,7 +33,7 @@ vi.mock('@/hooks/useSocket', () => ({
 vi.mock('@/hooks/useJiraIssue', () => ({
   useJiraIssue: () => ({ data: null }),
   useJiraIssueTeams: (urls: string[]) =>
-    urls.map(() => ({ team: null, isJira: false, isLoading: false })),
+    urls.map((url) => jiraQueue.byUrl.get(url) ?? { team: null, isJira: false, isLoading: false }),
 }));
 
 vi.mock('@/hooks/useUrlTitle', () => ({
@@ -111,6 +114,10 @@ const makeSession = (overrides: Partial<Session> = {}): Session => ({
   createdAt: new Date().toISOString(),
   expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
   ...overrides,
+});
+
+beforeEach(() => {
+  jiraQueue.byUrl.clear();
 });
 
 function seedHostState() {
@@ -394,6 +401,45 @@ describe('HostDashboard — navigation controls', () => {
     seedHostState();
   });
 
+  it('does not move the queue while a team filter is active', async () => {
+    const urls = [
+      'https://example.atlassian.net/browse/PROJ-1',
+      'https://example.atlassian.net/browse/PROJ-2',
+    ];
+    jiraQueue.byUrl.set(urls[0], { team: 'Platform', isJira: true, isLoading: false });
+    jiraQueue.byUrl.set(urls[1], { team: 'Mobile', isJira: true, isLoading: false });
+    useSessionStore.getState().setSession(makeSession({ urls, currentIndex: 0 }));
+    render(<HostDashboard />);
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Mobile' }));
+    expect(screen.getByRole('button', { name: /next/i })).toBeDisabled();
+    expect(screen.getByText(/choose all teams to move/i)).toBeInTheDocument();
+    expect(mockEmit).not.toHaveBeenCalledWith('host_navigate', expect.anything());
+  });
+
+  it('moves to the next ticket in the selected team queue', async () => {
+    const urls = [
+      'https://example.atlassian.net/browse/PROJ-1',
+      'https://example.atlassian.net/browse/PROJ-2',
+      'https://example.atlassian.net/browse/PROJ-3',
+    ];
+    jiraQueue.byUrl.set(urls[0], { team: 'Platform', isJira: true, isLoading: false });
+    jiraQueue.byUrl.set(urls[1], { team: 'Mobile', isJira: true, isLoading: false });
+    jiraQueue.byUrl.set(urls[2], { team: 'Platform', isJira: true, isLoading: false });
+    useSessionStore
+      .getState()
+      .setSession(makeSession({ urls, currentIndex: 0, teamQueuesEnabled: true }));
+    render(<HostDashboard />);
+
+    expect(screen.queryByRole('tab', { name: 'All teams' })).not.toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'No team' })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: /next/i }));
+    expect(mockEmit).toHaveBeenCalledWith(
+      'host_navigate',
+      expect.objectContaining({ index: 2, sessionId: 'session-1', hostKey: 'host-key-123' }),
+    );
+  });
+
   it('emits HOST_NAVIGATE next when Next is clicked', async () => {
     const store = useSessionStore.getState();
     store.setSession(makeSession({ urls: ['https://a.com', 'https://b.com'], currentIndex: 0 }));
@@ -416,7 +462,7 @@ describe('HostDashboard — navigation controls', () => {
     );
   });
 
-  it('emits HOST_NAVIGATE with skip: true when Skip is clicked', async () => {
+  it('emits HOST_NAVIGATE with skip: true when Skip is clicked on a non-last ticket', async () => {
     const store = useSessionStore.getState();
     store.setSession(makeSession({ urls: ['https://a.com', 'https://b.com'], currentIndex: 0 }));
     render(<HostDashboard />);
@@ -425,6 +471,68 @@ describe('HostDashboard — navigation controls', () => {
       'host_navigate',
       expect.objectContaining({ direction: 'next', skip: true }),
     );
+  });
+
+  it('emits HOST_SET_SAVED_VOTE when Skip is clicked on the only/last ticket in regular mode', async () => {
+    const store = useSessionStore.getState();
+    // Single ticket session — currentIndex 0 is both first and last
+    store.setSession(makeSession({ urls: ['https://a.com'], currentIndex: 0 }));
+    render(<HostDashboard />);
+    await userEvent.click(screen.getByRole('button', { name: /skip/i }));
+    expect(mockEmit).toHaveBeenCalledWith(
+      WS_EVENTS.HOST_SET_SAVED_VOTE,
+      expect.objectContaining({
+        sessionId: 'session-1',
+        hostKey: 'host-key-123',
+        urlIndex: 0,
+        value: 'skipped',
+      }),
+    );
+    expect(mockEmit).not.toHaveBeenCalledWith(
+      'host_navigate',
+      expect.objectContaining({ skip: true }),
+    );
+  });
+
+  it('emits HOST_SET_SAVED_VOTE when Skip is clicked on the last ticket of a team queue', async () => {
+    const urls = [
+      'https://example.atlassian.net/browse/PROJ-1',
+      'https://example.atlassian.net/browse/PROJ-2',
+    ];
+    // Both tickets belong to the same team — at currentIndex 1 (last), step(1) returns null
+    jiraQueue.byUrl.set(urls[0], { team: 'Alpha', isJira: true, isLoading: false });
+    jiraQueue.byUrl.set(urls[1], { team: 'Alpha', isJira: true, isLoading: false });
+    useSessionStore
+      .getState()
+      .setSession(makeSession({ urls, currentIndex: 1, teamQueuesEnabled: true }));
+    render(<HostDashboard />);
+    mockEmit.mockClear();
+    await userEvent.click(screen.getByRole('button', { name: /skip/i }));
+    expect(mockEmit).toHaveBeenCalledWith(
+      WS_EVENTS.HOST_SET_SAVED_VOTE,
+      expect.objectContaining({ urlIndex: 1, value: 'skipped' }),
+    );
+    expect(mockEmit).not.toHaveBeenCalledWith(
+      'host_navigate',
+      expect.objectContaining({ skip: true }),
+    );
+  });
+
+  it('shows a success toast when Skip is clicked on the last ticket in team-queues mode', async () => {
+    const urls = [
+      'https://example.atlassian.net/browse/PROJ-1',
+      'https://example.atlassian.net/browse/PROJ-2',
+    ];
+    jiraQueue.byUrl.set(urls[0], { team: 'Alpha', isJira: true, isLoading: false });
+    jiraQueue.byUrl.set(urls[1], { team: 'Alpha', isJira: true, isLoading: false });
+    useSessionStore
+      .getState()
+      .setSession(makeSession({ urls, currentIndex: 1, teamQueuesEnabled: true }));
+    render(<HostDashboard />);
+    await userEvent.click(screen.getByRole('button', { name: /skip/i }));
+    await waitFor(() => {
+      expect((toast as any).success).toHaveBeenCalled();
+    });
   });
 
   it('shows Edit order button and hides drag handles by default', () => {
@@ -533,7 +641,21 @@ describe('HostDashboard — settings modal', () => {
 
     expect(screen.getByText('Session Settings')).toBeInTheDocument();
     expect(screen.getByText('Story point voting')).toBeInTheDocument();
+    expect(screen.getByText('Team queues')).toBeInTheDocument();
     expect(screen.getByText('Lock session')).toBeInTheDocument();
+  });
+
+  it('emits HOST_TOGGLE_TEAM_QUEUES when the team queues toggle is clicked', async () => {
+    render(<HostDashboard />);
+
+    await userEvent.click(screen.getAllByTitle(/session settings/i)[0]);
+    await userEvent.click(screen.getByLabelText(/toggle team queues/i));
+
+    expect(mockEmit).toHaveBeenCalledWith(WS_EVENTS.HOST_TOGGLE_TEAM_QUEUES, {
+      sessionId: 'session-1',
+      hostKey: 'host-key-123',
+      teamQueuesEnabled: true,
+    });
   });
 
   it('emits HOST_TOGGLE_VOTING when voting toggle is clicked to enable', async () => {

@@ -621,6 +621,22 @@ describe('SessionsService', () => {
     });
   });
 
+  describe('setTeamQueuesEnabled()', () => {
+    it('enables team queues', async () => {
+      const { session } = await service.create(defaultDto);
+      const doc = await service.setTeamQueuesEnabled(session.id, true);
+      expect(doc?.teamQueuesEnabled).toBe(true);
+    });
+
+    it('returns null for nonexistent session', async () => {
+      const result = await service.setTeamQueuesEnabled(
+        '00000000-0000-0000-0000-000000000000',
+        true,
+      );
+      expect(result).toBeNull();
+    });
+  });
+
   describe('deleteSession()', () => {
     it('removes the session from the database', async () => {
       const { session } = await service.create(defaultDto);

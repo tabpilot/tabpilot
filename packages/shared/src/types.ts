@@ -17,6 +17,8 @@ export interface Session {
   currentIndex: number;
   state: SessionState;
   votingEnabled: boolean;
+  /** When true, each Jira team is groomed as its own queue. */
+  teamQueuesEnabled?: boolean;
   isLocked: boolean;
   createdAt: string;
   expiresAt: string;

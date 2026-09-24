@@ -11,6 +11,8 @@ interface NavigationControlsProps {
   readonly onComplete: () => void;
   readonly completed?: boolean;
   readonly disabled?: boolean;
+  /** When false, the last ticket keeps a disabled Next button instead of Complete. */
+  readonly completeOnLast?: boolean;
   readonly className?: string;
 }
 
@@ -23,6 +25,7 @@ export function NavigationControls({
   onComplete,
   completed = false,
   disabled = false,
+  completeOnLast = true,
   className,
 }: NavigationControlsProps) {
   const isFirst = currentIndex === 0;
@@ -91,27 +94,31 @@ export function NavigationControls({
         </div>
 
         {(() => {
-          if (!isLast) {
+          const skipBtn = (
+            <Button
+              variant="outline"
+              className={cn(
+                'flex-1 h-11 gap-1.5 border-zinc-300 dark:border-zinc-700',
+                'hover:border-amber-400 dark:hover:border-amber-500 hover:text-amber-600 dark:hover:text-amber-400',
+                'disabled:opacity-30',
+              )}
+              onClick={onSkip}
+              disabled={disabled || completed}
+            >
+              <ChevronsRight className="h-4 w-4" />
+              Skip
+            </Button>
+          );
+
+          if (!isLast || !completeOnLast) {
             return (
               <div className="flex-1 flex gap-2">
-                <Button
-                  variant="outline"
-                  className={cn(
-                    'flex-1 h-11 gap-1.5 border-zinc-300 dark:border-zinc-700',
-                    'hover:border-amber-400 dark:hover:border-amber-500 hover:text-amber-600 dark:hover:text-amber-400',
-                    'disabled:opacity-30',
-                  )}
-                  onClick={onSkip}
-                  disabled={disabled}
-                >
-                  <ChevronsRight className="h-4 w-4" />
-                  Skip
-                </Button>
+                {skipBtn}
                 <Button
                   variant="glow"
                   className={cn('flex-1 h-11 gap-2', 'disabled:opacity-30 disabled:shadow-none')}
                   onClick={onNext}
-                  disabled={disabled}
+                  disabled={disabled || (isLast && !completeOnLast)}
                 >
                   Next
                   <ChevronRight className="h-5 w-5" />
@@ -119,24 +126,27 @@ export function NavigationControls({
               </div>
             );
           }
-          if (completed) {
-            return (
-              <div className="flex-1 h-11 flex items-center justify-center gap-2 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-sm font-semibold">
-                <CheckCircle className="h-4 w-4" />
-                Completed
-              </div>
-            );
-          }
+
           return (
-            <Button
-              variant="glow"
-              className="flex-1 h-11 gap-2 disabled:opacity-30 disabled:shadow-none"
-              onClick={onComplete}
-              disabled={disabled}
-            >
-              <CheckCircle className="h-5 w-5" />
-              Complete
-            </Button>
+            <div className="flex-1 flex gap-2">
+              {skipBtn}
+              {completed ? (
+                <div className="flex-1 h-11 flex items-center justify-center gap-2 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-sm font-semibold">
+                  <CheckCircle className="h-4 w-4" />
+                  Completed
+                </div>
+              ) : (
+                <Button
+                  variant="glow"
+                  className="flex-1 h-11 gap-2 disabled:opacity-30 disabled:shadow-none"
+                  onClick={onComplete}
+                  disabled={disabled}
+                >
+                  <CheckCircle className="h-5 w-5" />
+                  Complete
+                </Button>
+              )}
+            </div>
           );
         })()}
       </div>

@@ -64,6 +64,9 @@ export class SessionDoc {
   votingEnabled: boolean;
 
   @Prop({ default: false })
+  teamQueuesEnabled: boolean;
+
+  @Prop({ default: false })
   isLocked: boolean;
 
   /**
