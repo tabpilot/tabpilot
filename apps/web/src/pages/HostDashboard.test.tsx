@@ -721,6 +721,34 @@ describe('HostDashboard — settings modal', () => {
     expect(screen.getByText('Lock session')).toBeInTheDocument();
   });
 
+  it('keeps the session title read-only in the header and editable in settings', async () => {
+    render(<HostDashboard />);
+
+    expect(screen.getByRole('heading', { name: 'Sprint Grooming' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /edit session title/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('textbox', { name: /session title/i })).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getAllByTitle(/session settings/i)[0]);
+
+    expect(screen.getByRole('textbox', { name: /session title/i })).toHaveValue('Sprint Grooming');
+  });
+
+  it('emits UPDATE_SESSION_NAME with the edited title when saved in settings', async () => {
+    render(<HostDashboard />);
+
+    await userEvent.click(screen.getAllByTitle(/session settings/i)[0]);
+    const titleInput = screen.getByRole('textbox', { name: /session title/i });
+    await userEvent.clear(titleInput);
+    await userEvent.type(titleInput, 'Sprint 48 Grooming');
+    await userEvent.click(screen.getByRole('button', { name: /save/i }));
+
+    expect(mockEmit).toHaveBeenCalledWith(WS_EVENTS.UPDATE_SESSION_NAME, {
+      sessionId: 'session-1',
+      hostKey: 'host-key-123',
+      name: 'Sprint 48 Grooming',
+    });
+  });
+
   it('emits HOST_TOGGLE_TEAM_QUEUES when the team queues toggle is clicked', async () => {
     render(<HostDashboard />);
 

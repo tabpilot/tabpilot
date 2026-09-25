@@ -204,6 +204,14 @@ export class SessionsService {
     return doc;
   }
 
+  async updateName(sessionId: string, name: string): Promise<SessionDocument> {
+    const doc = await this.sessionModel
+      .findOneAndUpdate({ sessionId }, { name }, { returnDocument: 'after' })
+      .exec();
+    if (!doc) throw new NotFoundException(`Session ${sessionId} not found`);
+    return doc;
+  }
+
   async setLocked(sessionId: string, isLocked: boolean): Promise<SessionDocument | null> {
     return this.sessionModel
       .findOneAndUpdate({ sessionId }, { isLocked }, { returnDocument: 'after' })

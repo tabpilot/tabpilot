@@ -31,6 +31,7 @@ import {
   type TeamQueueProgressUpdatedPayload,
   type TicketScoreUpdatePayload,
   type UpdateHostProfilePayload,
+  type UpdateSessionNamePayload,
   type VotesRevealedPayload,
   type VoteUpdatePayload,
   WS_EVENTS,
@@ -1148,6 +1149,35 @@ export class SessionGateway implements OnGatewayConnection, OnGatewayDisconnect 
     }
 
     const updated = await this.sessionsService.updateHostProfile(sessionId, trimmed, email ?? '');
+    const participants = await this.participantsService.findBySession(sessionId);
+    this.server.to(sessionId).emit(WS_EVENTS.SESSION_STATE, {
+      session: this.sessionsService.toSessionDto(updated),
+      participants,
+    } satisfies SessionStatePayload);
+  }
+
+  @SubscribeMessage(WS_EVENTS.UPDATE_SESSION_NAME)
+  async handleUpdateSessionName(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() payload: UpdateSessionNamePayload,
+  ) {
+    const { sessionId, hostKey, name } = payload;
+    if (!(await this.sessionsService.validateHostKey(sessionId, hostKey))) {
+      client.emit(WS_EVENTS.ERROR, {
+        message: 'Invalid host key',
+        code: 'INVALID_HOST_KEY',
+      } satisfies WsErrorPayload);
+      return;
+    }
+    const trimmed = name.trim();
+    if (!trimmed || trimmed.length > 100) {
+      client.emit(WS_EVENTS.ERROR, {
+        message: 'Title must be between 1 and 100 characters',
+        code: 'INVALID_NAME',
+      } satisfies WsErrorPayload);
+      return;
+    }
+    const updated = await this.sessionsService.updateName(sessionId, trimmed);
     const participants = await this.participantsService.findBySession(sessionId);
     this.server.to(sessionId).emit(WS_EVENTS.SESSION_STATE, {
       session: this.sessionsService.toSessionDto(updated),

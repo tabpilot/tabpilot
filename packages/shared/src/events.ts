@@ -107,6 +107,12 @@ export interface UpdateHostProfilePayload {
   email: string;
 }
 
+export interface UpdateSessionNamePayload {
+  sessionId: string;
+  hostKey: string;
+  name: string;
+}
+
 // ─── Server → Client ──────────────────────────────────────────────────────────
 
 export interface SessionStatePayload {
@@ -246,6 +252,7 @@ export const WS_EVENTS = {
   LEAVE_SESSION: 'leave_session',
   UPDATE_PARTICIPANT_PROFILE: 'update_participant_profile',
   UPDATE_HOST_PROFILE: 'update_host_profile',
+  UPDATE_SESSION_NAME: 'update_session_name',
 
   GROOMING_COMPLETE: 'grooming_complete',
   TEAM_QUEUE_COMPLETED: 'team_queue_completed',

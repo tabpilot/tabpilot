@@ -1,3 +1,4 @@
+import { WS_EVENTS } from '@tabpilot/shared';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
   Check,
@@ -41,6 +42,7 @@ import { useTeamQueues } from '@/hooks/useTeamQueues';
 import { usePrefetchTicketScores } from '@/hooks/useTicketScore';
 import { useTicketScoreStatus } from '@/hooks/useTicketScoreStatus';
 import { isStoryPointConfigured, parseJiraUrl, updateJiraStoryPoints } from '@/lib/jira';
+import { getSocket } from '@/lib/socket';
 import { NO_TEAM } from '@/lib/teamQueue';
 import { cn, getFaviconUrl, safeUrl, truncateUrl } from '@/lib/utils';
 import { useSessionStore } from '@/store/sessionStore';
@@ -250,6 +252,7 @@ export function HostDashboard() {
   const [isEditMode, setIsEditMode] = useState(false);
   const [frozenCurrentIndex, setFrozenCurrentIndex] = useState<number | null>(null);
   const [sendExtraFields, setSendExtraFields] = useState(false);
+  const [titleDraft, setTitleDraft] = useState('');
 
   const {
     session,
@@ -409,6 +412,17 @@ export function HostDashboard() {
 
   // Enrich current URL — Jira first, then generic page title, then domain
   const currentTitle = useCurrentTitle(currentUrl);
+
+  const saveSessionTitle = () => {
+    const name = titleDraft.trim();
+    if (!name || name.length > 100 || !sessionId || !hostKey) return;
+    getSocket().emit(WS_EVENTS.UPDATE_SESSION_NAME, { sessionId, hostKey, name });
+    setTitleDraft(name);
+  };
+
+  useEffect(() => {
+    if (showSettingsModal && session) setTitleDraft(session.name);
+  }, [showSettingsModal, session?.name]);
 
   if (!session) {
     return (
@@ -1033,6 +1047,35 @@ export function HostDashboard() {
               </div>
 
               <div className="space-y-3">
+                <form
+                  className="space-y-2 border-b border-zinc-200 dark:border-zinc-800 pb-3"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    saveSessionTitle();
+                  }}
+                >
+                  <label htmlFor="session-title" className="text-sm font-medium">
+                    Session title
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      id="session-title"
+                      aria-label="Session title"
+                      maxLength={100}
+                      value={titleDraft}
+                      onChange={(event) => setTitleDraft(event.target.value)}
+                      className="min-w-0 flex-1 rounded border border-zinc-300 dark:border-zinc-700 bg-transparent px-3 py-2 text-sm"
+                    />
+                    <Button
+                      type="submit"
+                      size="sm"
+                      disabled={!titleDraft.trim() || titleDraft.trim() === session.name}
+                    >
+                      <Check className="h-4 w-4 mr-1" /> Save
+                    </Button>
+                  </div>
+                </form>
+
                 <div className="flex items-center justify-between gap-4">
                   <div className="min-w-0">
                     <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
