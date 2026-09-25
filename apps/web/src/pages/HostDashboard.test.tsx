@@ -226,6 +226,21 @@ describe('HostDashboard — add URL validation', () => {
       });
     });
   });
+
+  it('ignores a Jira issue that is already in the queue and shows a toast', async () => {
+    useSessionStore.getState().setSession(
+      makeSession({ urls: ['https://example.atlassian.net/browse/FAKE-123'] }),
+    );
+    render(<HostDashboard />);
+
+    const input = screen.getByPlaceholderText(/paste a url/i);
+    await userEvent.type(input, 'https://example.atlassian.net/browse/FAKE-123');
+    await userEvent.keyboard('{Enter}');
+
+    expect(toast.error).toHaveBeenCalledWith('Jira issue FAKE-123 is already in the queue');
+    expect(mockEmit).not.toHaveBeenCalledWith(WS_EVENTS.HOST_ADD_URL, expect.anything());
+    expect(input).toHaveValue('https://example.atlassian.net/browse/FAKE-123');
+  });
 });
 
 describe('HostDashboard — vote reveal display', () => {

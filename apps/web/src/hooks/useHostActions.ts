@@ -202,9 +202,17 @@ export function useHostActions({
       toast.error('Please enter a valid http/https URL');
       return;
     }
+    const jiraIssue = parseJiraUrl(trimmed);
+    if (
+      jiraIssue &&
+      session?.urls.some((url) => parseJiraUrl(url)?.key === jiraIssue.key)
+    ) {
+      toast.error(`Jira issue ${jiraIssue.key} is already in the queue`);
+      return;
+    }
     getSocket().emit(WS_EVENTS.HOST_ADD_URL, { sessionId, hostKey, url: trimmed });
     setNewUrl('');
-  }, [newUrl, sessionId, hostKey, setNewUrl]);
+  }, [newUrl, sessionId, hostKey, session?.urls, setNewUrl]);
 
   const handleEndSession = useCallback(() => {
     if (!sessionId || !hostKey) return;
