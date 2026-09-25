@@ -422,7 +422,7 @@ export function HostDashboard() {
 
   useEffect(() => {
     if (showSettingsModal && session) setTitleDraft(session.name);
-  }, [showSettingsModal, session?.name]);
+  }, [showSettingsModal, session]);
 
   if (!session) {
     return (
