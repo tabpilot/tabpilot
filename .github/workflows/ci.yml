@@ -298,7 +298,7 @@ jobs:
 
       - name: Build and push (without docs)
         id: push
-        uses: docker/build-push-action@v7.3.0
+        uses: docker/build-push-action@v7.4.0
         with:
           context: .
           file: Containerfile
@@ -317,7 +317,7 @@ jobs:
 
       - name: Build and push (with docs)
         id: push-docs
-        uses: docker/build-push-action@v7.3.0
+        uses: docker/build-push-action@v7.4.0
         with:
           context: .
           file: Containerfile
