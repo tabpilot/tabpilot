@@ -4,12 +4,14 @@ updates:
     directory: "/"
     schedule:
       interval: "monthly"
+    open-pull-requests-limit: 0
     labels: ["dependencies", "github-actions"]
 
   - package-ecosystem: "npm"
     directory: "/"
     schedule:
       interval: "monthly"
+    open-pull-requests-limit: 0
     labels: ["dependencies", "npm"]
     groups:
       root:
@@ -19,6 +21,7 @@ updates:
     directory: "/apps/api"
     schedule:
       interval: "monthly"
+    open-pull-requests-limit: 0
     labels: ["dependencies", "npm", "api"]
     groups:
       api:
@@ -28,6 +31,7 @@ updates:
     directory: "/apps/web"
     schedule:
       interval: "monthly"
+    open-pull-requests-limit: 0
     labels: ["dependencies", "npm", "web"]
     groups:
       web:
@@ -37,6 +41,7 @@ updates:
     directory: "/packages/shared"
     schedule:
       interval: "monthly"
+    open-pull-requests-limit: 0
     labels: ["dependencies", "npm", "shared"]
     groups:
       shared:
@@ -46,4 +51,5 @@ updates:
     directory: "/"
     schedule:
       interval: "monthly"
+    open-pull-requests-limit: 0
     labels: ["dependencies", "docker"]
